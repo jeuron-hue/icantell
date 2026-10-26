@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Plain viewfinder mark: four corners and a small centre square. -->
+  <rect width="512" height="512" fill="#182026"/>
+  <g fill="none" stroke="#F7F8F6" stroke-width="22" stroke-linecap="square">
+    <path d="M150 196v-46h46M316 150h46v46M362 316v46h-46M196 362h-46v-46"/>
+  </g>
+  <rect x="236" y="236" width="40" height="40" fill="none" stroke="#66BAD6" stroke-width="16"/>
+</svg>
