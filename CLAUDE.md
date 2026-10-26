@@ -55,6 +55,13 @@ Phase 5: Find.
 Gate at the end of each phase: each phase is built on its own branch (phase-1, phase-2, ...) and pushed to GitHub with all suites green. Gary reviews and merges to main, GitHub Pages deploys, Gary tests on the target phone and confirms before the next phase starts. Nothing reaches main with a failing suite. No partial builds.
 Builds may run in cloud sessions (claude.ai/code) or locally on the rig; both follow the same gate.
 
+## Versions
+- Semantic versioning, x.y.z. z (patch): fixes and retuning, such as moving a name boundary after phone testing. y (minor): each phase merged. x (major): 1.0.0 only when Gary declares the app finished after real use; until then it stays on 0.x.
+- Map: 0.1.0 Phase 1, 0.2.0 Phase 2, 0.3.0 Phase 3 (v1 complete), 0.4.0 Phase 4, 0.5.0 Phase 5. Patches go between them as needed.
+- Every release bumps three places together: APP_VERSION in icantell.html, VERSION in sw.js (this renames the cache, so the installed app offers the update) and version in package.json. It also adds one line to the build notes at the top of icantell.html and one entry to the Versions list in the README: version, date dd/mm/yy, what changed in plain words.
+- A fix found in phone testing ships as a patch on its own branch (fix-0.1.1, ...) under the same gate as a phase.
+- Docs-only changes (README, CLAUDE.md) carry no version bump.
+
 ## Testing
 - icantell_checks.cjs (static): CSP present, no external origins, no CDN URLs, required and allowed files only, vendored versions and sha256 recorded, app and cache versions match, no personal names in tracked files (the banned list is reference/scrub_list.json; the check skips cleanly when it is absent).
 - icantell_behave.cjs (behavioural): real Chromium via Playwright with a fake camera (--use-fake-device-for-media-stream and --use-file-for-fake-video-capture) fed a generated .y4m of known colour patches, so names, compare results and freeze can be asserted. Unit tests on the colour module: round-trip conversions, every table centre names itself, boundary cases report "between", delta E thresholds.

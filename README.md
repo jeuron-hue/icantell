@@ -10,11 +10,11 @@ Open it at jeuron-hue.github.io/icantell, then use Chrome's menu, "Add to home s
 - The page carries a Content-Security-Policy that only lets it talk to its own site, so the browser itself blocks any attempt to send data elsewhere.
 - After the first visit the app works with no network at all.
 
-## Status
+## Versions
 
-In development. Features are listed here as they ship.
+In development. Each version is listed here as it ships, newest first. Numbers run x.y.z: the middle number goes up when a feature is added, the last one for fixes. It stays below 1.0.0 until the app is declared finished.
 
-- Name it (26/10/26): hold the crosshair over something and read its colour in plain words, such as "dark green", "greyish blue" or "between green and lime" when it sits on the line between two names. A small line underneath gives the measured lightness, chroma and hue.
+- 0.1.0 (26/10/26), Name it: hold the crosshair over something and read its colour in plain words, such as "dark green", "greyish blue" or "between green and lime" when it sits on the line between two names. A small line underneath gives the measured lightness, chroma and hue.
 
 ## Tests
 
