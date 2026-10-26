@@ -1,0 +1,16 @@
+{
+  "name": "icantell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Test tooling for the I can tell app. The app itself needs no install and no build.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "checks": "node icantell_checks.cjs",
+    "behave": "node icantell_behave.cjs",
+    "mutate": "bash icantell_mutate.sh",
+    "test": "node icantell_checks.cjs && node icantell_behave.cjs && bash icantell_mutate.sh"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

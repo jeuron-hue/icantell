@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<!--
+  I can tell (icantell.html). The whole app is in this one file.
+
+  Build notes
+  - Version 0.1.0, Phase 1: shell, install, camera, Name it. 26/10/26.
+  - Plain HTML, CSS and JavaScript. No framework, no build step, no server.
+    The camera image is read here, frame by frame, and never kept or sent.
+  - APP_VERSION below and VERSION in sw.js must match. Bump both on every
+    release so phones pick up the new copy.
+  - Vendored files, pinned. Change one only on purpose: update this list,
+    the SHELL list in sw.js, and the sha256 here (icantell_checks.cjs
+    compares them).
+    vendor/source-sans-3-latin-400-normal.woff2   @fontsource/source-sans-3@5.3.1   sha256 0f73f35e08cde0a2f10c109c6e01d71459d97e4099ecd9a50f1b6c0209e4de2b
+    vendor/source-sans-3-latin-600-normal.woff2   @fontsource/source-sans-3@5.3.1   sha256 14527d193b0e30bc32ef931549a246cdfd286573bb12869b7e052b8101a39d38
+    vendor/jetbrains-mono-latin-400-normal.woff2  @fontsource/jetbrains-mono@5.3.0  sha256 14425ba9c695763c1547f48a206b7aa60350a33ae23de09f0407877f3fcd89eb
+    vendor/OFL-source-sans-3.txt                  @fontsource/source-sans-3@5.3.1   licence
+    vendor/OFL-jetbrains-mono.txt                 @fontsource/jetbrains-mono@5.3.0  licence
+  - Icons in icons/ are drawn from icons/icon.svg and exported as PNG.
+-->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; media-src 'self' blob: mediastream:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>I can tell</title>
+<meta name="theme-color" content="#F7F8F6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#182026" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<style>
+@font-face { font-family: "Source Sans 3"; font-style: normal; font-weight: 400; font-display: swap; src: url("vendor/source-sans-3-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Source Sans 3"; font-style: normal; font-weight: 600; font-display: swap; src: url("vendor/source-sans-3-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("vendor/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
+
+/* Lab Book tokens */
+:root {
+  --paper: #F7F8F6; --paper-raised: #FFFFFF; --line: #DDE3E6; --line-strong: #7A8A94;
+  --ink: #1E2A33; --ink-muted: #5B6B75;
+  --accent: #1F6F8B; --accent-soft: #E3EEF2; --on-accent: #FFFFFF;
+  --font-sans: "Source Sans 3", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --radius-sm: 4px; --radius-md: 6px;
+  /* Behind the camera image before it starts: a dark slate, never pure black. */
+  --view: #182026;
+  --tap: 44px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #182026; --paper-raised: #222C33; --line: #34414A; --line-strong: #6E7D87;
+    --ink: #E8EDF0; --ink-muted: #9BAAB3;
+    --accent: #66BAD6; --accent-soft: #1E3A45; --on-accent: #0E1B1F;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body {
+  height: 100%; margin: 0; overflow: hidden;
+  background: var(--paper); color: var(--ink);
+  font-family: var(--font-sans); font-size: 15px; line-height: 22px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Camera on top, answer band below. On a wide screen the band moves to the side. */
+.app {
+  position: fixed; inset: 0;
+  display: grid; grid-template-rows: minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr);
+}
+.view { position: relative; overflow: hidden; background: var(--view); }
+.view video {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; display: block;
+}
+.crosshair {
+  position: absolute; left: 50%; top: 50%; width: 56px; height: 56px;
+  transform: translate(-50%, -50%); pointer-events: none;
+}
+.crosshair svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.crosshair .under { stroke: rgba(14, 20, 24, 0.75); stroke-width: 3.5; fill: none; }
+.crosshair .over { stroke: #F7F8F6; stroke-width: 1.5; fill: none; }
+
+.band {
+  background: var(--paper-raised); border-top: 1px solid var(--line);
+  padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+  padding-left: calc(var(--space-4) + env(safe-area-inset-left));
+  padding-right: calc(var(--space-4) + env(safe-area-inset-right));
+}
+.label {
+  margin: 0; color: var(--accent);
+  font: 11px/16px var(--font-mono); font-variant-ligatures: none; letter-spacing: 0.02em;
+}
+.answer {
+  margin: var(--space-1) 0 0; font-weight: 600;
+  font-size: clamp(28px, 8.5vmin, 46px); line-height: 1.15;
+  /* Room for two lines always, so the camera view does not jump when a name wraps. */
+  min-height: 2.3em; overflow-wrap: anywhere;
+}
+.answer.message { font-size: 18px; line-height: 24px; font-weight: 400; min-height: 0; }
+.readout {
+  margin: var(--space-1) 0 0; min-height: 18px; color: var(--ink-muted);
+  font: 12px/18px var(--font-mono); font-variant-ligatures: none; font-variant-numeric: tabular-nums;
+}
+
+button {
+  font: 600 15px/20px var(--font-sans); min-height: var(--tap); min-width: var(--tap);
+  padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm); cursor: pointer;
+  background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent);
+}
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.band button { margin-top: var(--space-3); }
+
+.update {
+  position: fixed; z-index: 2;
+  top: calc(var(--space-2) + env(safe-area-inset-top));
+  left: calc(var(--space-4) + env(safe-area-inset-left));
+  right: calc(var(--space-4) + env(safe-area-inset-right));
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius-md);
+}
+.update span { font-size: 15px; }
+
+/* Wide screens (phone on its side): camera left, band right. */
+@media (min-aspect-ratio: 5/4) {
+  .app { grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr) minmax(220px, 36%); }
+  .band {
+    border-top: 0; border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; justify-content: center;
+    padding: calc(var(--space-3) + env(safe-area-inset-top)) calc(var(--space-4) + env(safe-area-inset-right)) calc(var(--space-3) + env(safe-area-inset-bottom)) var(--space-4);
+  }
+  .answer { min-height: 0; }
+  .band button { align-self: flex-start; }
+}
+</style>
+</head>
+<body>
+<main class="app">
+  <section class="view" aria-label="Camera">
+    <video id="video" autoplay muted playsinline></video>
+    <div class="crosshair" id="crosshair" aria-hidden="true">
+      <svg viewBox="0 0 56 56">
+        <g class="under">
+          <rect x="21" y="21" width="14" height="14"/>
+          <path d="M28 4v11M28 41v11M4 28h11M41 28h11"/>
+        </g>
+        <g class="over">
+          <rect x="21" y="21" width="14" height="14"/>
+          <path d="M28 4v11M28 41v11M4 28h11M41 28h11"/>
+        </g>
+      </svg>
+    </div>
+  </section>
+  <section class="band" id="band">
+    <p class="label">Name it</p>
+    <p class="answer" id="answer" aria-live="polite">Starting camera</p>
+    <p class="readout" id="readout"></p>
+    <button type="button" id="retry" hidden>Try again</button>
+  </section>
+</main>
+<div class="update" id="update" role="status" hidden>
+  <span>Update available</span>
+  <button type="button" id="reload">Reload</button>
+</div>
+
+<script>
+// BEGIN colour module
+// Pure functions only: no screen, no camera, no storage. Everything here is
+// unit tested by icantell_behave.cjs and mutation tested by icantell_mutate.sh.
+const Colour = (() => {
+  'use strict';
+
+  // BEGIN name table
+  // Everyday colour names, each with an OKLab centre [L, a, b] worked out
+  // from the sRGB sample in the comment. Neutral names (black, grey, white)
+  // are chosen by lightness alone; their centres are typical values.
+  const NAME_TABLE = [
+    { name: 'red',        lab: [0.566, 0.183, 0.093] },   // #D42A2A
+    { name: 'maroon',     lab: [0.392, 0.122, 0.034] },   // #7B1E2E
+    { name: 'pink',       lab: [0.797, 0.098, 0.003] },   // #F2A2B8
+    { name: 'magenta',    lab: [0.615, 0.209, -0.067] },  // #D63AA8
+    { name: 'coral',      lab: [0.715, 0.131, 0.082] },   // #F47A63
+    { name: 'orange',     lab: [0.735, 0.084, 0.138] },   // #F28C28
+    { name: 'peach',      lab: [0.858, 0.041, 0.071] },   // #F9C49A
+    { name: 'brown',      lab: [0.458, 0.047, 0.066] },   // #7A4A28
+    { name: 'tan',        lab: [0.715, 0.029, 0.074] },   // #C49A6C
+    { name: 'beige',      lab: [0.878, 0.003, 0.052] },   // #E6D5B0
+    { name: 'cream',      lab: [0.939, -0.003, 0.047] },  // #F5EBC8
+    { name: 'yellow',     lab: [0.870, -0.020, 0.170] },  // #F5D327
+    { name: 'mustard',    lab: [0.737, 0.005, 0.133] },   // #CDA434
+    { name: 'olive',      lab: [0.566, -0.030, 0.097] },  // #7D7A2A
+    { name: 'khaki',      lab: [0.759, -0.011, 0.075] },  // #BDB27A
+    { name: 'lime',       lab: [0.808, -0.107, 0.149] },  // #A4D43A
+    { name: 'green',      lab: [0.609, -0.128, 0.093] },  // #3A9A3E
+    { name: 'mint',       lab: [0.864, -0.075, 0.031] },  // #A6E3BE
+    { name: 'teal',       lab: [0.543, -0.083, -0.022] }, // #1A7F7F
+    { name: 'turquoise',  lab: [0.754, -0.117, -0.018] }, // #38C7BE
+    { name: 'sky blue',   lab: [0.795, -0.047, -0.070] }, // #86C5EB
+    { name: 'blue',       lab: [0.513, -0.022, -0.171] }, // #2D5FC8
+    { name: 'navy',       lab: [0.320, -0.003, -0.122] }, // #1A2A70
+    { name: 'purple',     lab: [0.451, 0.097, -0.122] },  // #6E3596
+    { name: 'lavender',   lab: [0.765, 0.038, -0.071] },  // #B9A8E0
+    { name: 'black',      lab: [0.200, 0, 0], neutral: true },
+    { name: 'grey',       lab: [0.640, 0, 0], neutral: true },
+    { name: 'white',      lab: [0.970, 0, 0], neutral: true },
+  ];
+  // END name table
+
+  // Below this OKLab chroma a sample is black, grey or white.
+  const NEUTRAL_CHROMA = 0.025;
+  // Chroma band just above NEUTRAL_CHROMA reported as "between grey and ...".
+  const NEUTRAL_BAND = 0.015;
+  // Lightness limits for the neutral names, and the band either side of
+  // each limit reported as "between black and grey" or "between grey and white".
+  const BLACK_MAX_L = 0.3;
+  const WHITE_MIN_L = 0.92;
+  const NEUTRAL_BETWEEN_L = 0.02;
+  // Grey is called dark grey or light grey outside these lightness limits.
+  const GREY_DARK_L = 0.5;
+  const GREY_LIGHT_L = 0.78;
+  // How much lightness, chroma and hue count when finding the nearest name.
+  // Hue is counted in radians, so a 30 degree turn (0.52 rad) costs about
+  // the same as a 0.23 step in lightness.
+  const WEIGHT_L = 0.8;
+  const WEIGHT_C = 0.9;
+  const WEIGHT_H = 0.35;
+  // A sample this much darker or lighter than its name's centre is "dark" or "light".
+  const LIGHT_STEP = 0.08;
+  // Chroma as a fraction of the centre's chroma: below GREYISH_RATIO is
+  // "greyish", above BRIGHT_RATIO is "bright".
+  const GREYISH_RATIO = 0.55;
+  const BRIGHT_RATIO = 1.35;
+  // If the nearest name's distance is more than this fraction of the
+  // runner-up's, the sample sits on a boundary and both names are given.
+  const BETWEEN_RATIO = 0.85;
+  // Hysteresis: the name shown last time gets its distance multiplied by
+  // this, so a sample has to move clearly past a boundary to change name.
+  const HOLD = 0.85;
+
+  // sRGB channel (0 to 255) to linear light (0 to 1), IEC 61966-2-1.
+  function srgbToLinear(c) {
+    const v = c / 255;
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  }
+
+  // Linear light (0 to 1) back to an sRGB channel (0 to 255, not rounded).
+  function linearToSrgb(v) {
+    const c = v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
+    return c * 255;
+  }
+
+  // sRGB [r, g, b] (0 to 255) to OKLab [L, a, b]. Matrices from Ottosson (2020).
+  function rgbToOklab(rgb) {
+    const r = srgbToLinear(rgb[0]);
+    const g = srgbToLinear(rgb[1]);
+    const b = srgbToLinear(rgb[2]);
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    return [
+      0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+      1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+      0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+    ];
+  }
+
+  // OKLab [L, a, b] back to sRGB [r, g, b] (0 to 255, not rounded or clipped).
+  function oklabToRgb(lab) {
+    const l = Math.pow(lab[0] + 0.3963377774 * lab[1] + 0.2158037573 * lab[2], 3);
+    const m = Math.pow(lab[0] - 0.1055613458 * lab[1] - 0.0638541728 * lab[2], 3);
+    const s = Math.pow(lab[0] - 0.0894841775 * lab[1] - 1.2914855480 * lab[2], 3);
+    return [
+      linearToSrgb(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+      linearToSrgb(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+      linearToSrgb(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s),
+    ];
+  }
+
+  // OKLab [L, a, b] to OKLCh [L, C, h], hue in degrees 0 to 360.
+  function oklabToOklch(lab) {
+    const c = Math.hypot(lab[1], lab[2]);
+    let h = Math.atan2(lab[2], lab[1]) * 180 / Math.PI;
+    if (h < 0) h += 360;
+    return [lab[0], c, h];
+  }
+
+  // OKLCh [L, C, h] back to OKLab [L, a, b].
+  function oklchToOklab(lch) {
+    const rad = lch[2] * Math.PI / 180;
+    return [lch[0], lch[1] * Math.cos(rad), lch[1] * Math.sin(rad)];
+  }
+
+  // Median of each channel over a block of RGBA pixels (as read from a
+  // canvas). The median ignores a few odd pixels, such as a glint.
+  function medianRgb(rgba) {
+    const n = rgba.length / 4;
+    const out = [];
+    for (let ch = 0; ch < 3; ch++) {
+      const vals = new Array(n);
+      for (let i = 0; i < n; i++) vals[i] = rgba[i * 4 + ch];
+      vals.sort((x, y) => x - y);
+      const mid = n >> 1;
+      out.push(n % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2);
+    }
+    return out;
+  }
+
+  // Mean of a list of OKLab samples, used to steady the reading over a few frames.
+  function meanLab(samples) {
+    const sum = [0, 0, 0];
+    for (const s of samples) {
+      sum[0] += s[0];
+      sum[1] += s[1];
+      sum[2] += s[2];
+    }
+    return sum.map((v) => v / samples.length);
+  }
+
+  // Distance used to find the nearest name: weighted steps in lightness,
+  // chroma and hue angle (see the WEIGHT_ constants).
+  function nameDistance(lch, centre) {
+    let dh = Math.abs(lch[2] - centre[2]);
+    if (dh > 180) dh = 360 - dh;
+    const dl = WEIGHT_L * (lch[0] - centre[0]);
+    const dc = WEIGHT_C * (lch[1] - centre[1]);
+    const dhr = WEIGHT_H * dh * Math.PI / 180;
+    return Math.sqrt(dl * dl + dc * dc + dhr * dhr);
+  }
+
+  // Neutral name from lightness alone.
+  function neutralName(l) {
+    if (l < BLACK_MAX_L) return 'black';
+    if (l > WHITE_MIN_L) return 'white';
+    return 'grey';
+  }
+
+  // Plain modifier for a chromatic sample against its matched centre.
+  function modifier(lch, centre) {
+    const dl = lch[0] - centre[0];
+    const ratio = lch[1] / centre[1];
+    const dark = dl < -LIGHT_STEP;
+    const light = dl > LIGHT_STEP;
+    if (ratio < GREYISH_RATIO) {
+      if (light) return 'pale';
+      return dark ? 'dark greyish' : 'greyish';
+    }
+    if (ratio > BRIGHT_RATIO) return dark ? 'deep' : 'bright';
+    if (dark) return 'dark';
+    return light ? 'light' : '';
+  }
+
+  // Chromatic entries sorted nearest first, with the held name favoured.
+  function rankChromatic(lch, held) {
+    const ranked = [];
+    for (const entry of NAME_TABLE) {
+      if (entry.neutral) continue;
+      const centre = oklabToOklch(entry.lab);
+      let d = nameDistance(lch, centre);
+      if (entry.name === held) d *= HOLD;
+      ranked.push({ name: entry.name, centre, d });
+    }
+    ranked.sort((x, y) => x.d - y.d);
+    return ranked;
+  }
+
+  // between names are given in alphabetical order, so the words stay put
+  // while the sample wobbles from one side of the boundary to the other.
+  function result(family, mod, between) {
+    if (between) between.sort();
+    let text;
+    if (between) text = 'between ' + between[0] + ' and ' + between[1];
+    else text = mod ? mod + ' ' + family : family;
+    return { text, family, modifier: mod, between };
+  }
+
+  // Name an OKLab sample. previous is the result shown last time (or null).
+  // A plain name shown last time is held (hysteresis); a "between" answer
+  // is not, so a sample on a boundary keeps being reported as one.
+  // Returns { text, family, modifier, between } where between is null or
+  // the two names the sample sits between.
+  function nameColour(lab, previous) {
+    const held = previous && !previous.between ? previous.family : null;
+    const lch = oklabToOklch(lab);
+    if (lch[1] < NEUTRAL_CHROMA) {
+      const family = neutralName(lch[0]);
+      if (Math.abs(lch[0] - BLACK_MAX_L) < NEUTRAL_BETWEEN_L) return result(family, '', ['black', 'grey']);
+      if (Math.abs(lch[0] - WHITE_MIN_L) < NEUTRAL_BETWEEN_L) return result(family, '', ['grey', 'white']);
+      let mod = '';
+      if (family === 'grey') {
+        if (lch[0] < GREY_DARK_L) mod = 'dark';
+        else if (lch[0] > GREY_LIGHT_L) mod = 'light';
+      }
+      return result(family, mod, null);
+    }
+    const ranked = rankChromatic(lch, held);
+    const best = ranked[0];
+    if (lch[1] < NEUTRAL_CHROMA + NEUTRAL_BAND) {
+      return result(best.name, '', [neutralName(lch[0]), best.name]);
+    }
+    if (best.d > BETWEEN_RATIO * ranked[1].d) {
+      return result(best.name, '', [best.name, ranked[1].name]);
+    }
+    return result(best.name, modifier(lch, best.centre), null);
+  }
+
+  return {
+    NAME_TABLE, srgbToLinear, linearToSrgb, rgbToOklab, oklabToRgb, oklabToOklch,
+    oklchToOklab, medianRgb, meanLab, nameDistance, nameColour,
+  };
+})();
+// END colour module
+</script>
+<script>
+// App: camera, sampling under the crosshair, and the answer band.
+(() => {
+  'use strict';
+
+  const APP_VERSION = '0.1.0';
+  // Side of the square read under the crosshair, in camera pixels.
+  const PATCH_PX = 15;
+  // Readings averaged together before naming, to calm camera noise.
+  const FRAMES_TO_AVERAGE = 5;
+  // Time between readings.
+  const SAMPLE_INTERVAL_MS = 100;
+  // A new name must come up this many readings in a row before it is shown.
+  const STABLE_READINGS = 3;
+
+  const video = document.getElementById('video');
+  const crosshair = document.getElementById('crosshair');
+  const answer = document.getElementById('answer');
+  const readout = document.getElementById('readout');
+  const retry = document.getElementById('retry');
+  const updateBar = document.getElementById('update');
+  const reloadButton = document.getElementById('reload');
+
+  const patch = document.createElement('canvas');
+  patch.width = PATCH_PX;
+  patch.height = PATCH_PX;
+  const patchCtx = patch.getContext('2d', { willReadFrequently: true });
+
+  let stream = null;
+  let starting = false;
+  let recent = [];
+  let shown = null;
+  let candidate = '';
+  let candidateCount = 0;
+  let lastSampleAt = -Infinity;
+
+  function showAnswer(text) {
+    answer.classList.remove('message');
+    answer.textContent = text;
+  }
+
+  function showMessage(text, canRetry) {
+    answer.classList.add('message');
+    answer.textContent = text;
+    readout.textContent = '';
+    retry.hidden = !canRetry;
+  }
+
+  function resetReading() {
+    recent = [];
+    shown = null;
+    candidate = '';
+    candidateCount = 0;
+  }
+
+  function messageFor(err) {
+    const name = err && err.name;
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      return 'Camera blocked. Allow it in Chrome: Settings, Site settings, Camera.';
+    }
+    if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No camera found on this device.';
+    if (name === 'NotReadableError') return 'Camera busy in another app. Close that app and try again.';
+    return 'Camera did not start. Try again.';
+  }
+
+  // Open the back camera. Called on launch and whenever the app comes back into view.
+  async function startCamera() {
+    if (stream || starting) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showMessage('Camera not available here. Open the app from its https address.', false);
+      return;
+    }
+    starting = true;
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+      if (document.visibilityState === 'hidden') {
+        s.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      stream = s;
+      resetReading();
+      retry.hidden = true;
+      showAnswer('Starting camera');
+      video.srcObject = s;
+      await video.play().catch(() => {});
+    } catch (err) {
+      showMessage(messageFor(err), true);
+    } finally {
+      starting = false;
+    }
+  }
+
+  // Close the camera when the app is out of sight: no light on, nothing read.
+  function stopCamera() {
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+    video.srcObject = null;
+  }
+
+  // Where the crosshair sits in camera pixels. The video is scaled to cover
+  // its box (object-fit: cover), so part of the image may be cut off at the edges.
+  function crosshairInVideo() {
+    const box = video.getBoundingClientRect();
+    const mark = crosshair.getBoundingClientRect();
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    const scale = Math.max(box.width / vw, box.height / vh);
+    const x = vw / 2 + (mark.left + mark.width / 2 - (box.left + box.width / 2)) / scale;
+    const y = vh / 2 + (mark.top + mark.height / 2 - (box.top + box.height / 2)) / scale;
+    const half = PATCH_PX / 2;
+    return {
+      x: Math.min(Math.max(Math.round(x - half), 0), vw - PATCH_PX),
+      y: Math.min(Math.max(Math.round(y - half), 0), vh - PATCH_PX),
+    };
+  }
+
+  function formatReadout(lab) {
+    const lch = Colour.oklabToOklch(lab);
+    return 'L ' + lch[0].toFixed(2) + '  C ' + lch[1].toFixed(2) + '  h ' + Math.round(lch[2]) + '°';
+  }
+
+  // Show a new name only once it has come up a few readings in a row.
+  function settle(named) {
+    if (shown && named.text === shown.text) {
+      candidate = '';
+      candidateCount = 0;
+      return;
+    }
+    if (named.text === candidate) candidateCount += 1;
+    else {
+      candidate = named.text;
+      candidateCount = 1;
+    }
+    if (!shown || candidateCount >= STABLE_READINGS) {
+      shown = named;
+      candidate = '';
+      candidateCount = 0;
+      showAnswer(shown.text);
+    }
+  }
+
+  function readPatch() {
+    const p = crosshairInVideo();
+    patchCtx.drawImage(video, p.x, p.y, PATCH_PX, PATCH_PX, 0, 0, PATCH_PX, PATCH_PX);
+    const rgb = Colour.medianRgb(patchCtx.getImageData(0, 0, PATCH_PX, PATCH_PX).data);
+    recent.push(Colour.rgbToOklab(rgb));
+    if (recent.length > FRAMES_TO_AVERAGE) recent.shift();
+    const lab = Colour.meanLab(recent);
+    readout.textContent = formatReadout(lab);
+    // Wait for a full set of readings: a camera's first frames are often
+    // still settling their exposure and white balance.
+    if (recent.length < FRAMES_TO_AVERAGE) return;
+    settle(Colour.nameColour(lab, shown));
+  }
+
+  function tick(now) {
+    requestAnimationFrame(tick);
+    if (!stream || video.readyState < 2 || !video.videoWidth) return;
+    if (now - lastSampleAt < SAMPLE_INTERVAL_MS) return;
+    lastSampleAt = now;
+    readPatch();
+  }
+
+  // Offline copy and updates. A new version waits until the user taps Reload.
+  let registration = null;
+  let waitingWorker = null;
+  let reloadRequested = false;
+
+  function offerUpdate(worker) {
+    waitingWorker = worker;
+    updateBar.hidden = false;
+  }
+
+  function watchForUpdates() {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      registration = reg;
+      if (reg.waiting && navigator.serviceWorker.controller) offerUpdate(reg.waiting);
+      reg.addEventListener('updatefound', () => {
+        const worker = reg.installing;
+        if (!worker) return;
+        worker.addEventListener('statechange', () => {
+          if (worker.state === 'installed' && navigator.serviceWorker.controller) offerUpdate(worker);
+        });
+      });
+    }).catch(() => {});
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloadRequested) location.reload();
+    });
+  }
+
+  reloadButton.addEventListener('click', () => {
+    reloadRequested = true;
+    if (waitingWorker) waitingWorker.postMessage('skip-waiting');
+    else location.reload();
+  });
+
+  retry.addEventListener('click', () => {
+    retry.hidden = true;
+    showAnswer('Starting camera');
+    startCamera();
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      stopCamera();
+    } else {
+      startCamera();
+      if (registration) registration.update().catch(() => {});
+    }
+  });
+  window.addEventListener('pagehide', stopCamera);
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted) startCamera();
+  });
+
+  document.documentElement.dataset.version = APP_VERSION;
+  watchForUpdates();
+  startCamera();
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
