@@ -28,6 +28,7 @@ The user point is speed and discretion. Open, point, read, close in a couple of 
 - Light correction (white tap): the user points the crosshair at something white or light grey (paper, a wall) and taps White. That patch becomes the reference: a per-channel gain in linear RGB (von Kries style) makes it read neutral, and every later sample gets the same gain before naming or Compare. Held in memory only, until the app closes or the user clears it, since the light changes when you move. A small marker shows when it is on. A reference that is too dark or too colourful is refused with a one-line reason; limits are named constants.
 - Calibration to the phone, not to ideal colours: the chroma cutoffs and modifiers are set from real phone readings (the phone test notes in reference/), because a phone camera reads less chroma indoors than the true colour has. The grey cutoff drops as lightness drops, so a dark navy or dark green is not called grey.
 - Compare: two locked sample points, difference as OKLab delta E, reported in words: "same colour", "very close", "different". When different, add what differs in plain terms ("left is redder", "right is darker"). Thresholds are named constants.
+- Paste mode (still images): in a computer's browser, a screenshot on the clipboard pastes in with Cmd+V or Ctrl+V (drag and drop and a file picker as well); on the phone, the manifest share_target accepts an image shared from another app, handled in sw.js. The image is held in memory only, never saved or sent. Pointing at it (mouse hover) or tapping anywhere names the colour there, with the same sampling, naming and hysteresis; Compare works on two points of the image. Screen pixels are exact sRGB, so the camera calibration constants do not apply to still images: they use the ideal thresholds, kept as a separate named set. The White tap stays available for a photo of a real scene. On a device with no rear camera (a laptop or desktop), the app opens in Paste mode instead of showing the webcam. The CSP gains blob: for img-src only; connect-src stays 'self'. Nothing needs installing on the computer, so it works on a managed machine.
 - Freeze: one tap freezes the frame so the user can read it, and show someone, without holding the phone up.
 - Layout: must work on a foldable's narrow outer screen and its near-square inner screen, portrait and landscape, and survive folding or unfolding mid-use (resize and orientation events). Camera fills the screen; the answer sits in large type in one band. Tap targets at least 44 px.
 - Record the pinned version of every vendored file in the file header build notes. Never upgrade one silently.
@@ -40,28 +41,30 @@ Lab Book (Gary's design system). Load the lab-book-design skill; if it is not av
 2. Light: white tap correction and the torch. Lighting is the biggest cause of wrong names (phone test, 26/10/26), so this comes before Compare.
 3. Compare: two points, same or different, with what differs.
 4. Freeze.
-5. Check: a short colour vision test of our own design, generated in code (dot plates with figures placed along protan and deutan confusion lines). Not the Ishihara plates, which are copyrighted. Result is protan, deutan, or unclear, stored as a setting, and shown as a guide, not a diagnosis. Name it and Compare do not depend on it.
+5. Paste: name colours in a pasted screenshot on a computer, or an image shared in on the phone.
+6. Check: a short colour vision test of our own design, generated in code (dot plates with figures placed along protan and deutan confusion lines). Not the Ishihara plates, which are copyrighted. Result is protan, deutan, or unclear, stored as a setting, and shown as a guide, not a diagnosis. Name it and Compare do not depend on it.
 
 ## After v1
-6. Separate: daltonise the live view, moving the red-green difference onto the blue-yellow axis, tuned to the Check result. Care needed: a bad tuning can make blue and yellow confusions worse. A strength slider and a hold-to-see-original.
-7. Find: the user picks a colour family; everything else in the live view goes grey.
+7. Separate: daltonise the live view, moving the red-green difference onto the blue-yellow axis, tuned to the Check result. Care needed: a bad tuning can make blue and yellow confusions worse. A strength slider and a hold-to-see-original.
+8. Find: the user picks a colour family; everything else in the live view goes grey.
 
 ## Out of scope for now
-Still photos and screenshots (share target), system-wide overlay, any network feature, saving images.
+System-wide overlay, any network feature, saving images. Hover-to-name tools that need installing on a computer are parked (see reference/brief.md); Paste mode covers computers without an install.
 
 ## Build order
 Phase 1: shell, PWA install, camera, Name it. (Done, 0.1.0.)
 Phase 2: Light. White tap correction and torch first, then retune the names against corrected phone readings (chroma cutoffs, the "between" family rule) and fix the flicker (bigger patch, about 1 s averaging, more repeats before a change). Retuning comes after the correction so the warm cast of indoor light is not baked into the thresholds.
 Phase 3: Compare, freeze.
-Phase 4: Check (the test). v1 is complete here.
-Phase 5: Separate.
-Phase 6: Find.
+Phase 4: Paste mode (clipboard and share target).
+Phase 5: Check (the test). v1 is complete here.
+Phase 6: Separate.
+Phase 7: Find.
 Gate at the end of each phase: each phase is built on its own branch (phase-1, phase-2, ...) and pushed to GitHub with all suites green. Gary reviews and merges to main, GitHub Pages deploys, Gary tests on the target phone and confirms before the next phase starts. Nothing reaches main with a failing suite. No partial builds.
 Builds may run in cloud sessions (claude.ai/code) or locally on the rig; both follow the same gate.
 
 ## Versions
 - Semantic versioning, x.y.z. z (patch): fixes and retuning, such as moving a name boundary after phone testing. y (minor): each phase merged. x (major): 1.0.0 only when Gary declares the app finished after real use; until then it stays on 0.x.
-- Map: 0.1.0 Phase 1, 0.2.0 Phase 2 (Light), 0.3.0 Phase 3 (Compare), 0.4.0 Phase 4 (Check, v1 complete), 0.5.0 Phase 5, 0.6.0 Phase 6. Patches go between them as needed.
+- Map: 0.1.0 Phase 1, 0.2.0 Phase 2 (Light), 0.3.0 Phase 3 (Compare), 0.4.0 Phase 4 (Paste), 0.5.0 Phase 5 (Check, v1 complete), 0.6.0 Phase 6, 0.7.0 Phase 7. Patches go between them as needed.
 - Every release bumps three places together: APP_VERSION in icantell.html, VERSION in sw.js (this renames the cache, so the installed app offers the update) and version in package.json. It also adds one line to the build notes at the top of icantell.html and one entry to the Versions list in the README: version, date dd/mm/yy, what changed in plain words.
 - A fix found in phone testing ships as a patch on its own branch (fix-0.1.1, ...) under the same gate as a phase.
 - Docs-only changes (README, CLAUDE.md) carry no version bump.
