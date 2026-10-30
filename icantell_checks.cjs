@@ -87,7 +87,7 @@ const REQUIRED = [
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
   'package.json', 'package-lock.json',
   'icantell_checks.cjs', 'icantell_behave.cjs', 'icantell_mutate.sh',
-  'README.md', 'CLAUDE.md', 'CHANGELOG.md', '.gitignore',
+  'README.md', 'CLAUDE.md', 'CHANGELOG.md', '.gitignore', '.gitattributes',
 ];
 
 const ALLOWED = [
@@ -96,7 +96,7 @@ const ALLOWED = [
   /^vendor\/[a-z0-9-]+\.woff2$/, /^vendor\/OFL-[a-z0-9-]+\.txt$/,
   /^package\.json$/, /^package-lock\.json$/,
   /^icantell_checks\.cjs$/, /^icantell_behave\.cjs$/, /^icantell_mutate\.sh$/,
-  /^README\.md$/, /^CLAUDE\.md$/, /^CHANGELOG\.md$/, /^\.gitignore$/,
+  /^README\.md$/, /^CLAUDE\.md$/, /^CHANGELOG\.md$/, /^\.gitignore$/, /^\.gitattributes$/,
 ];
 
 const CDN_HOSTS = [
