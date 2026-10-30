@@ -4,7 +4,9 @@
 // Fails (exit 1) on: missing or loose Content-Security-Policy, any external
 // address or CDN in the app, network calls other than the service worker's
 // same-site fetch, files outside the allowed set, vendored files whose
-// version or sha256 is not recorded, mismatched app and cache versions, a
+// version or sha256 is not recorded, mismatched app, cache and package
+// versions, a CHANGELOG.md whose newest entry is not this version or whose
+// headings lack the release date and time, a
 // loose Playwright pin, em dashes in text, or banned names (the list lives
 // in reference/scrub_list.json, which is gitignored; the check skips
 // cleanly when it is absent).
@@ -43,6 +45,40 @@ function repoFiles() {
   return out.toString('utf8').split('\0').filter((f) => f && exists(f));
 }
 
+// CHANGELOG.md (versioning rule, 30/10/26).
+// Every heading is "## <version>, dd/mm/yy HHMM hrs" with an optional ", <label>"; the
+// version is vX.Y.Z, a legacy vN, or Brief. Newest first: the top entry is the current
+// APP_VERSION, x.y.z versions strictly fall, times never rise going down, and every entry
+// has at least one "- " change line.
+function changelogProblems(text, appVersion) {
+  const probs = [];
+  const heads = [];
+  const lines = text.split('\n');
+  lines.forEach((l, i) => { if (l.startsWith('## ')) heads.push(i); });
+  if (!heads.length) return ['no entries'];
+  const cmp = (a, b) => { for (let k = 0; k < 3; k++) if (a[k] !== b[k]) return a[k] - b[k]; return 0; };
+  let prevVer = null, prevStamp = null;
+  heads.forEach((h, n) => {
+    const m = lines[h].match(/^## (v\d+\.\d+\.\d+|v\d+|Brief), (\d\d)\/(\d\d)\/(\d\d) (\d\d)(\d\d) hrs(, .+)?$/);
+    if (!m) { probs.push(`heading not "## vX.Y.Z, dd/mm/yy HHMM hrs": ${lines[h]}`); return; }
+    const [, label, dd, mo, yy, hh, mi] = m;
+    if (+dd < 1 || +dd > 31 || +mo < 1 || +mo > 12 || +hh > 23 || +mi > 59) probs.push(`bad date or time: ${lines[h]}`);
+    if (n === 0 && label !== 'v' + appVersion) probs.push(`newest entry ${label} is not the current version v${appVersion}`);
+    const stamp = yy + mo + dd + hh + mi;
+    if (prevStamp && stamp > prevStamp) probs.push(`${label} is later than the entry above it`);
+    prevStamp = stamp;
+    const xyz = label.match(/^v(\d+)\.(\d+)\.(\d+)$/);
+    if (xyz) {
+      const v = xyz.slice(1).map(Number);
+      if (prevVer && cmp(v, prevVer) >= 0) probs.push(`${label} is not below the version above it`);
+      prevVer = v;
+    }
+    const body = lines.slice(h + 1, heads[n + 1] ?? lines.length);
+    if (!body.some((l) => l.startsWith('- '))) probs.push(`${label} has no "- " change line`);
+  });
+  return probs;
+}
+
 // The parts that ship to the phone and run there.
 const APP_CODE = ['icantell.html', 'index.html', 'sw.js', 'manifest.webmanifest'];
 
@@ -51,7 +87,7 @@ const REQUIRED = [
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
   'package.json', 'package-lock.json',
   'icantell_checks.cjs', 'icantell_behave.cjs', 'icantell_mutate.sh',
-  'README.md', 'CLAUDE.md', '.gitignore',
+  'README.md', 'CLAUDE.md', 'CHANGELOG.md', '.gitignore',
 ];
 
 const ALLOWED = [
@@ -60,7 +96,7 @@ const ALLOWED = [
   /^vendor\/[a-z0-9-]+\.woff2$/, /^vendor\/OFL-[a-z0-9-]+\.txt$/,
   /^package\.json$/, /^package-lock\.json$/,
   /^icantell_checks\.cjs$/, /^icantell_behave\.cjs$/, /^icantell_mutate\.sh$/,
-  /^README\.md$/, /^CLAUDE\.md$/, /^\.gitignore$/,
+  /^README\.md$/, /^CLAUDE\.md$/, /^CHANGELOG\.md$/, /^\.gitignore$/,
 ];
 
 const CDN_HOSTS = [
@@ -147,6 +183,10 @@ function main() {
   const appVersion = (read('icantell.html').match(/const APP_VERSION = '([^']+)'/) || [])[1];
   const swVersion = (read('sw.js').match(/const VERSION = '([^']+)'/) || [])[1];
   check('APP_VERSION and sw.js VERSION match', !!appVersion && appVersion === swVersion, appVersion + ' vs ' + swVersion);
+  const pkgVersion = JSON.parse(read('package.json')).version;
+  check('package.json version matches APP_VERSION', pkgVersion === appVersion, pkgVersion + ' vs ' + appVersion);
+  const changelogProbs = exists('CHANGELOG.md') ? changelogProblems(read('CHANGELOG.md'), appVersion) : ['missing'];
+  check('CHANGELOG.md: version, release date and time, change; newest first', changelogProbs.length === 0, changelogProbs.join('; '));
   check("sw.js cache name is 'icantell-' + VERSION", /const CACHE = 'icantell-' \+ VERSION;/.test(read('sw.js')));
   const shellList = (read('sw.js').match(/const SHELL = \[([\s\S]*?)\];/) || [])[1] || '';
   const shell = (shellList.match(/'([^']+)'/g) || []).map((s) => s.slice(1, -1));
