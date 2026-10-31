@@ -71,7 +71,7 @@ The same rule runs in every app repo (retouch, filter, travelboard, icantell), a
 - Map: 0.1.0 Phase 1, 0.2.0 Phase 2 (Light), 0.3.0 Phase 3 (Compare), 0.4.0 Phase 4 (Paste), 0.5.0 Phase 5 (Check, v1 complete), 0.6.0 Phase 6, 0.7.0 Phase 7. Patches go between them as needed.
 - A fix found in phone testing ships as a patch on its own branch (fix-0.1.1, ...) under the same gate as a phase.
 - icantell_checks.cjs fails if a heading lacks the version, date or time, the newest entry is not the current version, versions or times are out of order, or an entry has no change line.
-- Each release is built on its own branch and merged by Gary through a pull request; the branch is deleted after the merge. Once merged, the release is tagged vX.Y.Z on its commit in main; a session that finds a merged release without a tag adds it.
+- Each release is built on its own branch and merged by Gary through a pull request; GitHub deletes the branch when the pull request is merged. Releases are tagged vX.Y.Z on their commit in main from the rig, in a batch when Gary asks (version-release skill, section 2). A build session stops at the merge: it does not tag, delete branches, or mention either (a cloud session cannot push tags or delete branches).
 
 ## Testing
 - icantell_checks.cjs (static): CSP present, no external origins, no CDN URLs, required and allowed files only, vendored versions and sha256 recorded, app, cache and package versions match, CHANGELOG.md in step with APP_VERSION (see Versions and changes), no personal names in tracked files (the banned list is reference/scrub_list.json; the check skips cleanly when it is absent).
