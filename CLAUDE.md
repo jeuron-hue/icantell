@@ -62,15 +62,19 @@ Phase 7: Find.
 Gate at the end of each phase: each phase is built on its own branch (phase-1, phase-2, ...) and pushed to GitHub with all suites green. Gary reviews and merges to main, GitHub Pages deploys, Gary tests on the target phone and confirms before the next phase starts. Nothing reaches main with a failing suite. No partial builds.
 Builds may run in cloud sessions (claude.ai/code) or locally on the rig; both follow the same gate.
 
-## Versions
-- Semantic versioning, x.y.z. z (patch): fixes and retuning, such as moving a name boundary after phone testing. y (minor): each phase merged. x (major): 1.0.0 only when Gary declares the app finished after real use; until then it stays on 0.x.
+## Versions and changes
+The same rule runs in every app repo (retouch, filter, travelboard, icantell), agreed with Gary 30/10/26. The full method is in the version-release skill.
+- Numbers run x.y.z. Patch (z): a fix or retuning, nothing new to learn. Minor (y): something new Gary can do, a finished phase, or a visible redesign; the patch goes back to 0. Major (x): 1.0.0 only when Gary declares the app finished after real use; after that x moves only when something old stops working (saved data, a file format). Until then the app stays on 0.x.
+- One version per release. A release is any change to the app that reaches main. Docs-only and test-only work carries no bump and is listed in the next version's entry. A work-in-progress checkpoint does not bump the version; the bump goes in the commit that completes the release.
+- The bump changes APP_VERSION in icantell.html, VERSION in sw.js (this renames the cache, so the installed app offers the update) and version in package.json, and the version line in the build notes at the top of icantell.html, together, in the release commit, and the commit subject ends with (vX.Y.Z).
+- CHANGELOG.md gets the version's entry in the same commit, at the top (newest first): a heading `## vX.Y.Z, dd/mm/yy HHMM hrs`, optionally followed by `, <phase>`, giving the date and time the release commit is made, in Singapore time; then one or more `- ` lines saying what changed, in plain words. Reasons and phone results stay in this file. A released entry is changed only to correct a fact. The README's Versions section explains the numbering and points to CHANGELOG.md; it keeps no list of its own.
 - Map: 0.1.0 Phase 1, 0.2.0 Phase 2 (Light), 0.3.0 Phase 3 (Compare), 0.4.0 Phase 4 (Paste), 0.5.0 Phase 5 (Check, v1 complete), 0.6.0 Phase 6, 0.7.0 Phase 7. Patches go between them as needed.
-- Every release bumps three places together: APP_VERSION in icantell.html, VERSION in sw.js (this renames the cache, so the installed app offers the update) and version in package.json. It also adds one line to the build notes at the top of icantell.html and one entry to the Versions list in the README: version, date dd/mm/yy, what changed in plain words.
 - A fix found in phone testing ships as a patch on its own branch (fix-0.1.1, ...) under the same gate as a phase.
-- Docs-only changes (README, CLAUDE.md) carry no version bump.
+- icantell_checks.cjs fails if a heading lacks the version, date or time, the newest entry is not the current version, versions or times are out of order, or an entry has no change line.
+- Each release is built on its own branch and merged by Gary through a pull request; the branch is deleted after the merge. Once merged, the release is tagged vX.Y.Z on its commit in main; a session that finds a merged release without a tag adds it.
 
 ## Testing
-- icantell_checks.cjs (static): CSP present, no external origins, no CDN URLs, required and allowed files only, vendored versions and sha256 recorded, app and cache versions match, no personal names in tracked files (the banned list is reference/scrub_list.json; the check skips cleanly when it is absent).
+- icantell_checks.cjs (static): CSP present, no external origins, no CDN URLs, required and allowed files only, vendored versions and sha256 recorded, app, cache and package versions match, CHANGELOG.md in step with APP_VERSION (see Versions and changes), no personal names in tracked files (the banned list is reference/scrub_list.json; the check skips cleanly when it is absent).
 - icantell_behave.cjs (behavioural): real Chromium via Playwright with a fake camera (--use-fake-device-for-media-stream and --use-file-for-fake-video-capture) fed a generated .y4m of known colour patches, so names, compare results and freeze can be asserted. Unit tests on the colour module: round-trip conversions, every table centre names itself, boundary cases report "between", delta E thresholds.
 - icantell_mutate.sh: mutation runner over the colour module. Survivors mean the tests get tightened.
 - Everything green before any commit.
