@@ -3,7 +3,7 @@
 ## Read first
 reference/brief.md (gitignored) holds who this is for, the target phone and the agreed scope. Read it before any work. Nothing personal from it goes into this file, the README, the code, commit messages or icons.
 
-Cloud sessions (claude.ai/code) clone the repo without reference/. There, the opening prompt carries the brief and the banned-names list: write them to reference/brief.md and reference/scrub_list.json before any work, so the scrub check runs instead of skipping. reference/ stays gitignored; never commit it.
+Cloud sessions (claude.ai/code) clone the repo without reference/. There, the opening prompt carries the brief, the banned-names list and the phone test notes: write them to reference/brief.md, reference/scrub_list.json and the notes file named in the prompt before any work, so the scrub check runs instead of skipping and a retune works from real phone readings. reference/ stays gitignored; never commit it.
 
 ## What this is
 I can tell (repo icantell) is a colour-naming tool for people with red-green colour vision deficiency, installed as a PWA from GitHub Pages (jeuron-hue/icantell, public, jeuron-hue.github.io/icantell). Private working tool, not a portfolio piece.
@@ -52,7 +52,7 @@ Lab Book (Gary's design system). Load the lab-book-design skill; if it is not av
 System-wide overlay, any network feature, saving images. Hover-to-name tools that need installing on a computer are parked (see reference/brief.md); Paste mode covers computers without an install.
 
 ## Build order
-Phase 1: shell, PWA install, camera, Name it. (Done, 0.1.0.)
+Phase 1: shell, PWA install, camera, Name it. (Done, 0.1.0. Phone test passed: installs and runs standalone; portrait and landscape, with the band moving to the side in landscape; folding and unfolding mid-use; camera released when switched away and back on return; works in aeroplane mode; type size and discretion fine. The same colour named differently under three kinds of lighting, which Phase 2 addresses.)
 Phase 2: Light. White tap correction and torch first, then retune the names against corrected phone readings (chroma cutoffs, the "between" family rule) and fix the flicker (bigger patch, about 1 s averaging, more repeats before a change). Retuning comes after the correction so the warm cast of indoor light is not baked into the thresholds.
 Phase 3: Compare, freeze.
 Phase 4: Paste mode (clipboard and share target).

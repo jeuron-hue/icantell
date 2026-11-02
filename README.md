@@ -1,6 +1,6 @@
 # I can tell
 
-A small colour-naming tool for an Android phone, installed from this site as an app (PWA). Point the camera at something and it tells you the colour in plain words, or whether two things are the same colour. Made with red-green colour vision deficiency in mind.
+A small colour-naming tool for an Android phone, installed from this site as an app (PWA). Point the camera at something and it tells you the colour in plain words. Made with red-green colour vision deficiency in mind.
 
 Open it at jeuron-hue.github.io/icantell, then use Chrome's menu, "Add to home screen" or "Install app".
 
