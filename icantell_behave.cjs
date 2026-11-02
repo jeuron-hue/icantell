@@ -105,6 +105,15 @@ const UNIT_TESTS = [
       for (let i = 0; i < 3; i++) near(got[i], want[i], 2e-6, 'rgb ' + rgb + ' channel ' + i);
     }
   }],
+  ['linearToOklab: reference values', (C) => {
+    const got = C.linearToOklab([0.5, 0.2, 0.1]);
+    const want = [0.643328, 0.061562, 0.070472];
+    for (let i = 0; i < 3; i++) near(got[i], want[i], 2e-6, 'channel ' + i);
+    const white = C.linearToOklab([1, 1, 1]);
+    const grey = C.linearToOklab([0.125, 0.125, 0.125]);
+    for (let i = 0; i < 3; i++) near(white[i], [1, 0, 0][i], 1e-6, 'white channel ' + i);
+    for (let i = 0; i < 3; i++) near(grey[i], [0.5, 0, 0][i], 1e-6, 'grey at L 0.5 channel ' + i);
+  }],
   ['oklabToRgb: round trip through OKLab for a grid of colours', (C) => {
     for (let r = 0; r <= 255; r += 17) {
       for (let g = 0; g <= 255; g += 17) {
@@ -142,9 +151,34 @@ const UNIT_TESTS = [
     glint.push(255, 255, 255, 255);
     same(C.medianRgb(glint), [50, 60, 70], 'one bright pixel does not move it');
   }],
-  ['meanLab: average of samples', (C) => {
-    same(C.meanLab([[0.2, 0.1, -0.1], [0.4, -0.1, 0.3], [0.6, 0.3, 0.1]]).map((v) => +v.toFixed(12)), [0.4, 0.1, 0.1], 'three');
-    same(C.meanLab([[0.5, 0.02, 0.03]]), [0.5, 0.02, 0.03], 'one');
+  ['meanOf: average of samples', (C) => {
+    same(C.meanOf([[0.2, 0.1, -0.1], [0.4, -0.1, 0.3], [0.6, 0.3, 0.1]]).map((v) => +v.toFixed(12)), [0.4, 0.1, 0.1], 'three');
+    same(C.meanOf([[0.5, 0.02, 0.03]]), [0.5, 0.02, 0.03], 'one');
+  }],
+  ['whiteGain: per-channel gain keeps the luminance and makes the reference neutral', (C) => {
+    const r = C.whiteGain([0.8, 0.6, 0.4]);
+    same(r.reason, '', 'accepted');
+    same(r.gain.map((v) => +v.toFixed(9)), [0.7851, 1.0468, 1.5702], 'gain');
+    same(C.whiteGain([0.5, 0.5, 0.5]).gain.map((v) => +v.toFixed(12)), [1, 1, 1], 'neutral reference needs no change');
+    same(C.applyGain([0.8, 0.6, 0.4], r.gain).map((v) => +v.toFixed(12)), [0.62808, 0.62808, 0.62808], 'reference after the gain');
+  }],
+  ['whiteGain: refuses a reference that is too dark (L below 0.5) or too colourful (C above 0.1)', (C) => {
+    same(C.whiteGain([0.14, 0.14, 0.14]).reason, '', 'L 0.519 accepted');
+    same([C.whiteGain([0.12, 0.12, 0.12]).gain, C.whiteGain([0.12, 0.12, 0.12]).reason], [null, 'dark'], 'L 0.493 refused');
+    same(C.whiteGain([0.8, 0.55, 0.2]).reason, '', 'C 0.099 accepted');
+    same([C.whiteGain([0.8, 0.55, 0.18]).gain, C.whiteGain([0.8, 0.55, 0.18]).reason], [null, 'colourful'], 'C 0.105 refused');
+    same(C.whiteGain([0.05, 0.01, 0.01]).reason, 'dark', 'dark and colourful counts as dark');
+  }],
+  ['applyGain: multiplies each channel; no gain leaves the sample alone', (C) => {
+    same(C.applyGain([0.2, 0.4, 0.6], [2, 0.5, 1.5]).map((v) => +v.toFixed(12)), [0.4, 0.2, 0.9], 'gain');
+    same(C.applyGain([0.2, 0.4, 0.6], null), [0.2, 0.4, 0.6], 'no gain');
+  }],
+  ['White on a warm cast: a warm grey names grey once a warm white is the reference', (C) => {
+    const lin = (rgb) => rgb.map((v) => Math.pow((v / 255 + 0.055) / 1.055, 2.4));
+    const gain = C.whiteGain(lin([250, 240, 215])).gain;
+    same(C.nameColour(C.linearToOklab(lin([150, 135, 110])), null).text, 'dark greyish tan', 'before');
+    same(C.nameColour(C.linearToOklab(C.applyGain(lin([150, 135, 110]), gain)), null).text, 'grey', 'after');
+    same(C.nameColour(C.linearToOklab(C.applyGain(lin([250, 240, 215]), gain)), null).text, 'white', 'the reference itself');
   }],
   ['nameDistance: weights for lightness, chroma and hue, and hue wrap', (C) => {
     near(C.nameDistance([0.5, 0.1, 40], [0.5, 0.1, 40]), 0, 1e-15, 'same point');
@@ -274,11 +308,14 @@ const UNIT_TESTS = [
     same(C.nameColour(at(0.44), onBoundary).text, 'light green', 'between answer left once past the band');
   }],
   ['flicker test colours straddle a boundary when mixed', (C) => {
-    const a = C.rgbToOklab(FLICKER_A);
-    const b = C.rgbToOklab(FLICKER_B);
-    const n1 = C.nameColour(C.meanLab([a, a, a, b, b]), null).text;
-    const n2 = C.nameColour(C.meanLab([a, a, b, b, b]), null).text;
-    if (n1 === n2) throw new Error('both mixes name ' + n1);
+    // Ten readings (about 1 s), averaged in linear light as the app does.
+    const lin = (rgb) => rgb.map((v) => Math.pow((v / 255 + 0.055) / 1.055, 2.4));
+    const mix = (k) => {
+      const s = [];
+      for (let i = 0; i < 10; i++) s.push(lin(i < k ? FLICKER_A : FLICKER_B));
+      return C.nameColour(C.linearToOklab(C.meanOf(s)), null).text;
+    };
+    if (mix(4) === mix(6)) throw new Error('both mixes name ' + mix(4));
   }],
 ];
 
@@ -574,12 +611,110 @@ async function runBrowser() {
     });
   });
 
+  // Patch size: 2% of the image's short side, at least 16 px. A 14 px blue
+  // square on orange fills most of a 16 px patch but under half of a 22 px one.
+  const smallSquare = (w, h) => {
+    const file = path.join(tmp, 'small-' + w + '.y4m');
+    writeY4m(file, w, h, 10, [(x, y) => (Math.abs(x - w / 2 + 0.5) < 7 && Math.abs(y - h / 2 + 0.5) < 7 ? patchRgb : surroundRgb)]);
+    return file;
+  };
+  await test('Patch: 16 px on a 640 x 480 image reads a 14 px square', () => withCamera(smallSquare(640, 480), async (context) => {
+    await waitForSteadyAnswer(await openApp(context), patchName);
+  }));
+  await test('Patch: 22 px (2%) on a 1920 x 1080 image is wider than a 14 px square', () => withCamera(smallSquare(1920, 1080), async (context) => {
+    await waitForSteadyAnswer(await openApp(context), expectName(surroundRgb));
+  }));
+
+  // Torch: hidden when the camera has none (the fake camera), shown and
+  // switched through the track's constraints when it has one.
+  await test('Torch: hidden when the camera offers none', () => withCamera(solid(patchRgb), async (context) => {
+    const page = await openApp(context);
+    await waitForAnswer(page, patchName);
+    if (!(await page.isVisible('#white'))) throw new Error('White not shown');
+    if (await page.isVisible('#torch')) throw new Error('Torch shown without a torch');
+  }));
+  await test('Torch: shown when the camera offers one; taps switch it on and off', () => withCamera(solid(patchRgb), async (context) => {
+    await context.addInitScript(() => {
+      window.__constraints = [];
+      const caps = MediaStreamTrack.prototype.getCapabilities;
+      MediaStreamTrack.prototype.getCapabilities = function () {
+        return Object.assign({}, caps ? caps.call(this) : {}, { torch: true });
+      };
+      MediaStreamTrack.prototype.applyConstraints = function (c) {
+        window.__constraints.push(JSON.stringify(c));
+        return Promise.resolve();
+      };
+    });
+    const page = await openApp(context);
+    await waitForAnswer(page, patchName);
+    await page.waitForSelector('#torch', { state: 'visible', timeout: 3000 });
+    same(await page.getAttribute('#torch', 'aria-pressed'), 'false', 'off at start');
+    await checkLayout(page, 'with torch');
+    await page.click('#torch');
+    await page.waitForFunction(() => document.getElementById('torch').getAttribute('aria-pressed') === 'true');
+    await page.click('#torch');
+    await page.waitForFunction(() => document.getElementById('torch').getAttribute('aria-pressed') === 'false');
+    same(await page.evaluate(() => window.__constraints), ['{"advanced":[{"torch":true}]}', '{"advanced":[{"torch":false}]}'], 'constraints sent');
+  }));
+
+  // White: 4 s of white paper under warm light, then 4 s of a grey card
+  // under the same light, looping.
+  const castWhite = [250, 240, 215];
+  const castGrey = [150, 135, 110];
+  const castFile = path.join(tmp, 'cast.y4m');
+  const castFrames = [];
+  for (let i = 0; i < 80; i++) castFrames.push(() => (i < 40 ? castWhite : castGrey));
+  writeY4m(castFile, 320, 240, 10, castFrames);
+
+  await test('White: taken from warm white paper, the paper reads white and the grey card reads grey', () => withCamera(castFile, async (context) => {
+    const page = await openApp(context);
+    // Tap White once a full second has been read and all of it is paper
+    // (a name is up and the readout says L 0.95 or more).
+    await page.waitForFunction(() => document.getElementById('answer').textContent !== 'Starting camera'
+      && parseFloat(document.getElementById('readout').textContent.slice(2)) >= 0.95, null, { timeout: 15000, polling: 20 });
+    await page.evaluate(() => document.getElementById('white').click());
+    same(await page.textContent('#answer'), 'white', 'paper at once');
+    if (!(await page.isVisible('#whiteMark'))) throw new Error('marker not shown');
+    same(await page.getAttribute('#white', 'aria-pressed'), 'true', 'White pressed');
+    const ro = await page.textContent('#readout');
+    if (!/ C 0\.00 /.test(ro)) throw new Error('readout after White "' + ro + '"');
+    await waitForAnswer(page, 'grey', 10000);
+    const grey = await page.textContent('#readout');
+    if (!/ C 0\.0[0-2] /.test(grey)) throw new Error('grey card readout "' + grey + '"');
+    await checkLayout(page, 'White on');
+    // Tap again to clear: back to the camera's own colours.
+    await page.click('#white');
+    if (await page.isVisible('#whiteMark')) throw new Error('marker still shown');
+    same(await page.getAttribute('#white', 'aria-pressed'), 'false', 'White released');
+    await page.waitForTimeout(1500);
+    const after = await page.textContent('#answer');
+    if (after === 'white' || after === 'grey') throw new Error('still corrected after clearing: "' + after + '"');
+  }));
+
+  async function whiteRefused(rgb, want) {
+    await withCamera(solid(rgb), async (context) => {
+      const page = await openApp(context);
+      const name = expectName(rgb);
+      await waitForAnswer(page, name);
+      await page.click('#white');
+      same(await page.textContent('#note'), want, 'note');
+      if (!(await page.isVisible('#note'))) throw new Error('note not shown');
+      if (await page.isVisible('#whiteMark')) throw new Error('marker shown after a refusal');
+      same(await page.getAttribute('#white', 'aria-pressed'), 'false', 'White not pressed');
+      same(await page.textContent('#answer'), name, 'name unchanged');
+      await checkLayout(page, 'note shown');
+    });
+  }
+  await test('White: refused on a dark reference, with the reason', () => whiteRefused([90, 90, 90], 'Too dark for White. Point at white paper in better light.'));
+  await test('White: refused on a colourful reference, with the reason', () => whiteRefused(patchRgb, 'Too colourful for White. Point at something white or light grey.'));
+
   await test('Camera blocked: one line saying how to allow it, and Try again', () => withCamera(solid([128, 128, 128]), async (context) => {
     const page = await openApp(context);
     await page.waitForFunction(() => document.getElementById('answer').textContent.startsWith('Camera blocked'), null, { timeout: 6000 });
     const text = await page.textContent('#answer');
     if (text !== 'Camera blocked. Allow it in Chrome: Settings, Site settings, Camera.') throw new Error('message "' + text + '"');
     if (!(await page.isVisible('#retry'))) throw new Error('Try again not shown');
+    if (await page.isVisible('#white')) throw new Error('White shown with no camera');
     await checkLayout(page, 'blocked');
   }, { grant: false }));
 

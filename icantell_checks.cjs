@@ -171,7 +171,7 @@ function main() {
     /\bnew\s+Image\s*\(/, /\bsrc\s*=\s*['"]https?:/, /\bdocument\.cookie\b/, /\bindexedDB\b/,
   ];
   for (const re of banned) check('page code has no ' + re.source, !re.test(page));
-  check('page never reads or writes localStorage outside a settings helper (none in Phase 1)', !/localStorage|sessionStorage/.test(page));
+  check('page never reads or writes localStorage outside a settings helper (none yet)', !/localStorage|sessionStorage/.test(page));
   const sw = stripComments(read('sw.js'));
   for (const re of banned.filter((r) => r.source !== '\\bfetch\\s*\\(')) check('sw.js has no ' + re.source, !re.test(sw));
   const fetchCalls = sw.match(/\bfetch\s*\(/g) || [];

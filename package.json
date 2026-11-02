@@ -1,6 +1,6 @@
 {
   "name": "icantell",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Test tooling for the I can tell app. The app itself needs no install and no build.",
   "license": "UNLICENSED",
