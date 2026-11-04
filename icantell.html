@@ -6,7 +6,7 @@
   I can tell (icantell.html). The whole app is in this one file.
 
   Build notes
-  - Version 0.1.0, Phase 1: shell, install, camera, Name it. 26/10/26.
+  - Version 0.2.0, Phase 2 (Light): White tap correction, torch, steadier names. 02/11/26.
   - Plain HTML, CSS and JavaScript. No framework, no build step, no server.
     The camera image is read here, frame by frame, and never kept or sent.
   - APP_VERSION below and VERSION in sw.js must match. Bump both on every
@@ -89,6 +89,12 @@ html, body {
 .label {
   margin: 0; color: var(--accent);
   font: 11px/16px var(--font-mono); font-variant-ligatures: none; letter-spacing: 0.02em;
+  display: flex; justify-content: space-between; gap: var(--space-2);
+}
+/* Small marker while the White correction is on. */
+.mark {
+  color: var(--ink-muted); border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
 }
 .answer {
   margin: var(--space-1) 0 0; font-weight: 600;
@@ -101,6 +107,8 @@ html, body {
   margin: var(--space-1) 0 0; min-height: 18px; color: var(--ink-muted);
   font: 12px/18px var(--font-mono); font-variant-ligatures: none; font-variant-numeric: tabular-nums;
 }
+/* One-line notes, such as why a White reference was refused. */
+.note { margin: var(--space-1) 0 0; font-size: 15px; line-height: 20px; }
 
 button {
   font: 600 15px/20px var(--font-sans); min-height: var(--tap); min-width: var(--tap);
@@ -110,6 +118,10 @@ button {
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 [hidden] { display: none !important; }
 .band button { margin-top: var(--space-3); }
+/* White and Torch: outlined when off, filled when on. */
+.tools { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.tools button { background: var(--paper-raised); color: var(--ink); border-color: var(--line-strong); }
+.tools button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 
 .update {
   position: fixed; z-index: 2;
@@ -131,7 +143,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     padding: calc(var(--space-3) + env(safe-area-inset-top)) calc(var(--space-4) + env(safe-area-inset-right)) calc(var(--space-3) + env(safe-area-inset-bottom)) var(--space-4);
   }
   .answer { min-height: 0; }
-  .band button { align-self: flex-start; }
+  .band > button, .tools { align-self: flex-start; }
 }
 </style>
 </head>
@@ -153,9 +165,14 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     </div>
   </section>
   <section class="band" id="band">
-    <p class="label">Name it</p>
+    <p class="label"><span>Name it</span><span class="mark" id="whiteMark" hidden>White on</span></p>
     <p class="answer" id="answer" aria-live="polite">Starting camera</p>
     <p class="readout" id="readout"></p>
+    <p class="note" id="note" role="status" hidden></p>
+    <div class="tools" id="tools" hidden>
+      <button type="button" id="white" aria-pressed="false">White</button>
+      <button type="button" id="torch" aria-pressed="false" hidden>Torch</button>
+    </div>
     <button type="button" id="retry" hidden>Try again</button>
   </section>
 </main>
@@ -237,6 +254,14 @@ const Colour = (() => {
   // Hysteresis: the name shown last time gets its distance multiplied by
   // this, so a sample has to move clearly past a boundary to change name.
   const HOLD = 0.85;
+  // White tap: a reference darker than this OKLab lightness, or more
+  // colourful than this chroma, is refused. Too dark and camera noise
+  // swamps the cast; too colourful and it is not white or grey at all.
+  const WHITE_REF_MIN_L = 0.5;
+  const WHITE_REF_MAX_C = 0.1;
+  // Share of each linear channel in luminance (sRGB, Rec. 709 primaries).
+  // The White gain keeps the reference's luminance and removes only its cast.
+  const LUMA = [0.2126, 0.7152, 0.0722];
 
   // sRGB channel (0 to 255) to linear light (0 to 1), IEC 61966-2-1.
   function srgbToLinear(c) {
@@ -250,11 +275,16 @@ const Colour = (() => {
     return c * 255;
   }
 
-  // sRGB [r, g, b] (0 to 255) to OKLab [L, a, b]. Matrices from Ottosson (2020).
+  // sRGB [r, g, b] (0 to 255) to OKLab [L, a, b].
   function rgbToOklab(rgb) {
-    const r = srgbToLinear(rgb[0]);
-    const g = srgbToLinear(rgb[1]);
-    const b = srgbToLinear(rgb[2]);
+    return linearToOklab([srgbToLinear(rgb[0]), srgbToLinear(rgb[1]), srgbToLinear(rgb[2])]);
+  }
+
+  // Linear light [r, g, b] (0 to 1) to OKLab [L, a, b]. Matrices from Ottosson (2020).
+  function linearToOklab(lin) {
+    const r = lin[0];
+    const g = lin[1];
+    const b = lin[2];
     const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
     const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
     const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
@@ -306,8 +336,9 @@ const Colour = (() => {
     return out;
   }
 
-  // Mean of a list of OKLab samples, used to steady the reading over a few frames.
-  function meanLab(samples) {
+  // Mean of a list of three-value samples (linear light, here), used to
+  // steady the reading over about a second of frames.
+  function meanOf(samples) {
     const sum = [0, 0, 0];
     for (const s of samples) {
       sum[0] += s[0];
@@ -315,6 +346,25 @@ const Colour = (() => {
       sum[2] += s[2];
     }
     return sum.map((v) => v / samples.length);
+  }
+
+  // White tap. lin is the reference patch in linear light [r, g, b]. Returns
+  // { gain, reason }: gain is a multiplier per channel (von Kries) that makes
+  // the reference read neutral at its own luminance, so the light's colour
+  // cast is taken out without making the scene brighter or darker. If the
+  // reference is unusable, gain is null and reason is 'dark' or 'colourful'.
+  function whiteGain(lin) {
+    const lch = oklabToOklch(linearToOklab(lin));
+    if (lch[0] < WHITE_REF_MIN_L) return { gain: null, reason: 'dark' };
+    if (lch[1] > WHITE_REF_MAX_C) return { gain: null, reason: 'colourful' };
+    const y = LUMA[0] * lin[0] + LUMA[1] * lin[1] + LUMA[2] * lin[2];
+    return { gain: [y / lin[0], y / lin[1], y / lin[2]], reason: '' };
+  }
+
+  // Linear light [r, g, b] with the White gain applied. A null gain leaves it as it is.
+  function applyGain(lin, gain) {
+    if (!gain) return lin;
+    return [lin[0] * gain[0], lin[1] * gain[1], lin[2] * gain[2]];
   }
 
   // Distance used to find the nearest name: weighted steps in lightness,
@@ -405,8 +455,8 @@ const Colour = (() => {
   }
 
   return {
-    NAME_TABLE, srgbToLinear, linearToSrgb, rgbToOklab, oklabToRgb, oklabToOklch,
-    oklchToOklab, medianRgb, meanLab, nameDistance, nameColour,
+    NAME_TABLE, srgbToLinear, linearToSrgb, rgbToOklab, linearToOklab, oklabToRgb,
+    oklabToOklch, oklchToOklab, medianRgb, meanOf, whiteGain, applyGain, nameDistance, nameColour,
   };
 })();
 // END colour module
@@ -416,32 +466,45 @@ const Colour = (() => {
 (() => {
   'use strict';
 
-  const APP_VERSION = '0.1.0';
-  // Side of the square read under the crosshair, in camera pixels.
-  const PATCH_PX = 15;
-  // Readings averaged together before naming, to calm camera noise.
-  const FRAMES_TO_AVERAGE = 5;
+  const APP_VERSION = '0.2.0';
+  // Side of the square read under the crosshair, as a fraction of the
+  // camera image's short side, with a floor in camera pixels. A fixed
+  // 15 px square flickered on the phone.
+  const PATCH_FRACTION = 0.02;
+  const PATCH_MIN_PX = 16;
   // Time between readings.
   const SAMPLE_INTERVAL_MS = 100;
+  // Readings averaged together before naming: 10 at 100 ms is about 1 s.
+  const FRAMES_TO_AVERAGE = 10;
   // A new name must come up this many readings in a row before it is shown.
-  const STABLE_READINGS = 3;
+  const STABLE_READINGS = 5;
+  // How long a one-line note (White refused, torch failed) stays up.
+  const NOTE_MS = 4000;
 
   const video = document.getElementById('video');
   const crosshair = document.getElementById('crosshair');
   const answer = document.getElementById('answer');
   const readout = document.getElementById('readout');
   const retry = document.getElementById('retry');
+  const note = document.getElementById('note');
+  const tools = document.getElementById('tools');
+  const whiteButton = document.getElementById('white');
+  const whiteMark = document.getElementById('whiteMark');
+  const torchButton = document.getElementById('torch');
   const updateBar = document.getElementById('update');
   const reloadButton = document.getElementById('reload');
 
   const patch = document.createElement('canvas');
-  patch.width = PATCH_PX;
-  patch.height = PATCH_PX;
   const patchCtx = patch.getContext('2d', { willReadFrequently: true });
 
   let stream = null;
   let starting = false;
+  // Linear-light medians of the last FRAMES_TO_AVERAGE readings, before any White gain.
   let recent = [];
+  // White correction: per-channel gain, or null when off. Memory only.
+  let whiteGain = null;
+  let torchOn = false;
+  let noteTimer = 0;
   let shown = null;
   let candidate = '';
   let candidateCount = 0;
@@ -457,6 +520,14 @@ const Colour = (() => {
     answer.textContent = text;
     readout.textContent = '';
     retry.hidden = !canRetry;
+    tools.hidden = true;
+  }
+
+  function showNote(text) {
+    clearTimeout(noteTimer);
+    note.textContent = text;
+    note.hidden = false;
+    noteTimer = setTimeout(() => { note.hidden = true; }, NOTE_MS);
   }
 
   function resetReading() {
@@ -487,7 +558,7 @@ const Colour = (() => {
     try {
       const s = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
       });
       if (document.visibilityState === 'hidden') {
         s.getTracks().forEach((t) => t.stop());
@@ -496,9 +567,11 @@ const Colour = (() => {
       stream = s;
       resetReading();
       retry.hidden = true;
+      tools.hidden = false;
       showAnswer('Starting camera');
       video.srcObject = s;
       await video.play().catch(() => {});
+      offerTorch();
     } catch (err) {
       showMessage(messageFor(err), true);
     } finally {
@@ -507,15 +580,84 @@ const Colour = (() => {
   }
 
   // Close the camera when the app is out of sight: no light on, nothing read.
+  // Stopping the track also puts the torch out.
   function stopCamera() {
     if (stream) stream.getTracks().forEach((t) => t.stop());
     stream = null;
     video.srcObject = null;
+    setTorchState(false);
+  }
+
+  // Torch: offered only when the camera track says it has one.
+  function videoTrack() {
+    return stream ? stream.getVideoTracks()[0] : null;
+  }
+
+  function setTorchState(on) {
+    torchOn = on;
+    torchButton.setAttribute('aria-pressed', String(on));
+  }
+
+  function offerTorch() {
+    const track = videoTrack();
+    const caps = track && track.getCapabilities ? track.getCapabilities() : {};
+    torchButton.hidden = !(caps && caps.torch);
+    setTorchState(false);
+  }
+
+  async function toggleTorch() {
+    const track = videoTrack();
+    if (!track) return;
+    const want = !torchOn;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: want }] });
+      setTorchState(want);
+    } catch (err) {
+      showNote('Torch did not respond.');
+    }
+  }
+
+  // White: the patch under the crosshair (averaged over the last second)
+  // becomes the reference that should read neutral. Tap again to clear.
+  function toggleWhite() {
+    if (whiteGain) {
+      setWhite(null);
+      return;
+    }
+    if (!recent.length) {
+      showNote('Point at something white, then tap White.');
+      return;
+    }
+    const ref = Colour.whiteGain(Colour.meanOf(recent));
+    if (!ref.gain) {
+      showNote(ref.reason === 'dark'
+        ? 'Too dark for White. Point at white paper in better light.'
+        : 'Too colourful for White. Point at something white or light grey.');
+      return;
+    }
+    setWhite(ref.gain);
+  }
+
+  // The readings kept are uncorrected, so the new setting applies to them
+  // at once; the name is shown fresh rather than waiting out the repeats.
+  function setWhite(gain) {
+    whiteGain = gain;
+    whiteButton.setAttribute('aria-pressed', String(!!gain));
+    whiteMark.hidden = !gain;
+    note.hidden = true;
+    shown = null;
+    candidate = '';
+    candidateCount = 0;
+    if (recent.length >= FRAMES_TO_AVERAGE) nameCurrent();
   }
 
   // Where the crosshair sits in camera pixels. The video is scaled to cover
   // its box (object-fit: cover), so part of the image may be cut off at the edges.
-  function crosshairInVideo() {
+  function patchSize(vw, vh) {
+    return Math.max(PATCH_MIN_PX, Math.round(PATCH_FRACTION * Math.min(vw, vh)));
+  }
+
+  function crosshairInVideo(size) {
     const box = video.getBoundingClientRect();
     const mark = crosshair.getBoundingClientRect();
     const vw = video.videoWidth;
@@ -523,10 +665,10 @@ const Colour = (() => {
     const scale = Math.max(box.width / vw, box.height / vh);
     const x = vw / 2 + (mark.left + mark.width / 2 - (box.left + box.width / 2)) / scale;
     const y = vh / 2 + (mark.top + mark.height / 2 - (box.top + box.height / 2)) / scale;
-    const half = PATCH_PX / 2;
+    const half = size / 2;
     return {
-      x: Math.min(Math.max(Math.round(x - half), 0), vw - PATCH_PX),
-      y: Math.min(Math.max(Math.round(y - half), 0), vh - PATCH_PX),
+      x: Math.min(Math.max(Math.round(x - half), 0), vw - size),
+      y: Math.min(Math.max(Math.round(y - half), 0), vh - size),
     };
   }
 
@@ -555,18 +697,29 @@ const Colour = (() => {
     }
   }
 
-  function readPatch() {
-    const p = crosshairInVideo();
-    patchCtx.drawImage(video, p.x, p.y, PATCH_PX, PATCH_PX, 0, 0, PATCH_PX, PATCH_PX);
-    const rgb = Colour.medianRgb(patchCtx.getImageData(0, 0, PATCH_PX, PATCH_PX).data);
-    recent.push(Colour.rgbToOklab(rgb));
-    if (recent.length > FRAMES_TO_AVERAGE) recent.shift();
-    const lab = Colour.meanLab(recent);
+  // Average the last second in linear light, apply the White gain, then
+  // name it. The readout shows the same corrected numbers that were named.
+  function nameCurrent() {
+    const lab = Colour.linearToOklab(Colour.applyGain(Colour.meanOf(recent), whiteGain));
     readout.textContent = formatReadout(lab);
     // Wait for a full set of readings: a camera's first frames are often
     // still settling their exposure and white balance.
     if (recent.length < FRAMES_TO_AVERAGE) return;
     settle(Colour.nameColour(lab, shown));
+  }
+
+  function readPatch() {
+    const size = patchSize(video.videoWidth, video.videoHeight);
+    if (patch.width !== size) {
+      patch.width = size;
+      patch.height = size;
+    }
+    const p = crosshairInVideo(size);
+    patchCtx.drawImage(video, p.x, p.y, size, size, 0, 0, size, size);
+    const rgb = Colour.medianRgb(patchCtx.getImageData(0, 0, size, size).data);
+    recent.push(rgb.map(Colour.srgbToLinear));
+    if (recent.length > FRAMES_TO_AVERAGE) recent.shift();
+    nameCurrent();
   }
 
   function tick(now) {
@@ -610,6 +763,9 @@ const Colour = (() => {
     if (waitingWorker) waitingWorker.postMessage('skip-waiting');
     else location.reload();
   });
+
+  whiteButton.addEventListener('click', toggleWhite);
+  torchButton.addEventListener('click', toggleTorch);
 
   retry.addEventListener('click', () => {
     retry.hidden = true;
