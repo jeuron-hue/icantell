@@ -2,6 +2,11 @@
 
 What changed in each version, newest first. Each heading gives the version, the date and time it was released (Singapore time, 24-hour) and the phase. Why each change was made is in CLAUDE.md.
 
+## v0.2.1, 06/11/26 1507 hrs, Phase 2 retune
+- White now also stops the camera adjusting its brightness and colour by itself, where the phone allows it, and makes the patch you tapped read as white. White paper then reads white instead of light grey or grey, and dark and light words follow the room. Tap White again to hand control back to the camera. If the camera was closed and reopened, White stays on for colour only.
+- Shades of one colour no longer say "between": blue against navy now reads "dark blue", tan against brown "light brown". "Between" is kept for different colours, such as red and orange, yellow and lime, or blue and purple.
+- Dark colours are less often called grey or black: the point where a colour counts as grey drops as it gets darker.
+
 ## v0.2.0, 02/11/26 2119 hrs, Phase 2 (Light)
 - White: point the crosshair at white paper or a pale wall and tap White. The colour cast of that light is then taken out of every name, and out of the L C h line, until you tap White again or close the app. A small "White on" mark shows while it is on. Something too dark or too colourful to use is refused, with a one-line reason.
 - Torch: a Torch button appears when the phone's camera has a light.

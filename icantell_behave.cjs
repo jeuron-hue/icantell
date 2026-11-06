@@ -159,14 +159,16 @@ const UNIT_TESTS = [
     const r = C.whiteGain([0.8, 0.6, 0.4]);
     same(r.reason, '', 'accepted');
     same(r.gain.map((v) => +v.toFixed(9)), [0.7851, 1.0468, 1.5702], 'gain');
+    near(r.brighten, 1.408636, 1e-6, 'brighten to L 0.96');
     same(C.whiteGain([0.5, 0.5, 0.5]).gain.map((v) => +v.toFixed(12)), [1, 1, 1], 'neutral reference needs no change');
+    near(C.whiteGain([0.5, 0.5, 0.5]).brighten, 1.769472, 1e-9, 'neutral reference brightened');
     same(C.applyGain([0.8, 0.6, 0.4], r.gain).map((v) => +v.toFixed(12)), [0.62808, 0.62808, 0.62808], 'reference after the gain');
   }],
   ['whiteGain: refuses a reference that is too dark (L below 0.5) or too colourful (C above 0.1)', (C) => {
     same(C.whiteGain([0.14, 0.14, 0.14]).reason, '', 'L 0.519 accepted');
-    same([C.whiteGain([0.12, 0.12, 0.12]).gain, C.whiteGain([0.12, 0.12, 0.12]).reason], [null, 'dark'], 'L 0.493 refused');
+    same(C.whiteGain([0.12, 0.12, 0.12]), { gain: null, brighten: null, reason: 'dark' }, 'L 0.493 refused');
     same(C.whiteGain([0.8, 0.55, 0.2]).reason, '', 'C 0.099 accepted');
-    same([C.whiteGain([0.8, 0.55, 0.18]).gain, C.whiteGain([0.8, 0.55, 0.18]).reason], [null, 'colourful'], 'C 0.105 refused');
+    same(C.whiteGain([0.8, 0.55, 0.18]), { gain: null, brighten: null, reason: 'colourful' }, 'C 0.105 refused');
     same(C.whiteGain([0.05, 0.01, 0.01]).reason, 'dark', 'dark and colourful counts as dark');
   }],
   ['applyGain: multiplies each channel; no gain leaves the sample alone', (C) => {
@@ -179,6 +181,16 @@ const UNIT_TESTS = [
     same(C.nameColour(C.linearToOklab(lin([150, 135, 110])), null).text, 'dark greyish tan', 'before');
     same(C.nameColour(C.linearToOklab(C.applyGain(lin([150, 135, 110]), gain)), null).text, 'grey', 'after');
     same(C.nameColour(C.linearToOklab(C.applyGain(lin([250, 240, 215]), gain)), null).text, 'white', 'the reference itself');
+  }],
+  ['White with exposure held: dim paper reads white at L 0.96, a grey card reads grey', (C) => {
+    const lin = (rgb) => rgb.map((v) => Math.pow((v / 255 + 0.055) / 1.055, 2.4));
+    const ref = C.whiteGain(lin([200, 190, 170]));
+    const full = ref.gain.map((g) => g * ref.brighten);
+    const paper = C.linearToOklab(C.applyGain(lin([200, 190, 170]), full));
+    near(paper[0], 0.96, 1e-6, 'paper L');
+    same(C.nameColour(paper, null).text, 'white', 'paper, held');
+    same(C.nameColour(C.linearToOklab(C.applyGain(lin([200, 190, 170]), ref.gain)), null).text, 'light grey', 'paper, colour only');
+    same(C.nameColour(C.linearToOklab(C.applyGain(lin([120, 112, 98]), full)), null).text, 'grey', 'grey card, held');
   }],
   ['nameDistance: weights for lightness, chroma and hue, and hue wrap', (C) => {
     near(C.nameDistance([0.5, 0.1, 40], [0.5, 0.1, 40]), 0, 1e-15, 'same point');
@@ -257,16 +269,56 @@ const UNIT_TESTS = [
     same(C.nameColour(lch(0.6, 0.026, 262.7), null).text, 'between blue and grey', 'C 0.026');
     same(C.nameColour(lch(0.6, 0.039, 262.7), null).text, 'between blue and grey', 'C 0.039');
     same(C.nameColour(lch(0.6, 0.041, 262.7), null).text, 'pale blue', 'C 0.041');
-    same(C.nameColour(lch(0.2, 0.03, 20), null).text, 'between black and maroon', 'dark and nearly neutral');
+    same(C.nameColour(lch(0.2, 0.03, 20), null).text, 'dark greyish maroon', 'dark, with a little colour');
     same(C.nameColour(lch(0.95, 0.03, 90), null).text, 'between cream and white', 'light and nearly neutral');
     const r = C.nameColour(lch(0.6, 0.03, 262.7), null);
     same([r.family, r.modifier], ['blue', ''], 'family is the colour side');
   }],
-  ['boundaries between two names are reported, in alphabetical order', (C) => {
+  ['dark samples: the neutral limits shrink with lightness below L 0.6, to 0.6 of full size', (C) => {
+    near(C.neutralScale(0.7), 1, 1e-12, 'L 0.7');
+    near(C.neutralScale(0.6), 1, 1e-12, 'L 0.6');
+    near(C.neutralScale(0.48), 0.8, 1e-12, 'L 0.48');
+    near(C.neutralScale(0.3), 0.6, 1e-12, 'L 0.3');
+    near(C.neutralScale(0.1), 0.6, 1e-12, 'L 0.1');
+    const cases = [
+      [0.7, 0.024, 'grey'], [0.7, 0.026, 'between grey and sky blue'],
+      [0.48, 0.019, 'dark grey'], [0.48, 0.021, 'between blue and grey'],
+      [0.48, 0.031, 'between blue and grey'], [0.48, 0.033, 'greyish blue'],
+      [0.33, 0.014, 'dark grey'], [0.33, 0.016, 'between grey and navy'],
+      [0.33, 0.023, 'between grey and navy'], [0.33, 0.025, 'greyish navy'],
+    ];
+    for (const [l, c, want] of cases) same(C.nameColour(lch(l, c, 262), null).text, want, 'L ' + l + ' C ' + c);
+    same(C.nameColour(lch(0.2, 0.012, 60), null).text, 'black', 'black with a trace of warmth');
+    same(C.nameColour(lch(0.2, 0.02, 60), null).text, 'between black and brown', 'black with more warmth');
+  }],
+  ['families: blue and navy are one family; grey, black and white are in none', (C) => {
+    same(C.familyOf('navy'), C.familyOf('blue'), 'navy and blue');
+    same(C.familyOf('sky blue'), C.familyOf('blue'), 'sky blue and blue');
+    if (C.familyOf('red') === C.familyOf('orange')) throw new Error('red and orange share a family');
+    if (C.familyOf('lime') === C.familyOf('yellow')) throw new Error('lime and yellow share a family');
+    if (C.familyOf('red') < 0) throw new Error('red has no family');
+    same([C.familyOf('grey'), C.familyOf('black'), C.familyOf('white')], [-1, -1, -1], 'neutrals');
+    const named = C.NAME_TABLE.filter((e) => !e.neutral).map((e) => e.name);
+    for (const n of named) if (C.familyOf(n) < 0) throw new Error(n + ' has no family');
+  }],
+  ['within a family the nearer name wins: no "between"', (C) => {
+    const mid = (a, b) => C.NAME_TABLE.find((e) => e.name === a).lab.map((v, i) => (v + C.NAME_TABLE.find((e) => e.name === b).lab[i]) / 2);
+    const cases = [
+      ['red', 'maroon', 'dark red'], ['red', 'coral', 'red'], ['pink', 'magenta', 'light magenta'],
+      ['orange', 'peach', 'orange'], ['orange', 'tan', 'orange'], ['tan', 'brown', 'light brown'],
+      ['yellow', 'mustard', 'yellow'], ['cream', 'beige', 'beige'], ['beige', 'khaki', 'khaki'],
+      ['lime', 'olive', 'dark lime'], ['green', 'mint', 'light green'], ['teal', 'turquoise', 'dark turquoise'],
+      ['blue', 'navy', 'dark blue'], ['blue', 'sky blue', 'light blue'], ['purple', 'lavender', 'light purple'],
+    ];
+    for (const [a, b, want] of cases) same(C.nameColour(mid(a, b), null).text, want, a + ' and ' + b);
+  }],
+  ['boundaries between two families are reported, in alphabetical order', (C) => {
     const mid = (a, b) => C.NAME_TABLE.find((e) => e.name === a).lab.map((v, i) => (v + C.NAME_TABLE.find((e) => e.name === b).lab[i]) / 2);
     same(C.nameColour(mid('green', 'lime'), null).text, 'between green and lime', 'green and lime');
-    same(C.nameColour(mid('navy', 'blue'), null).text, 'between blue and navy', 'navy and blue');
-    same(C.nameColour(mid('red', 'coral'), null).text, 'between coral and red', 'red and coral');
+    same(C.nameColour(mid('coral', 'orange'), null).text, 'between coral and orange', 'coral and orange');
+    same(C.nameColour(mid('yellow', 'lime'), null).text, 'between lime and yellow', 'yellow and lime');
+    same(C.nameColour(mid('blue', 'purple'), null).text, 'between blue and purple', 'blue and purple');
+    same(C.nameColour(mid('olive', 'khaki'), null).text, 'between khaki and olive', 'olive and khaki');
     const r = C.nameColour(C.rgbToOklab(BETWEEN_RGB), null);
     same([r.text, r.modifier, r.between], ['between green and lime', '', ['green', 'lime']], 'test colour');
     for (const d of [-3, 3]) {
@@ -689,6 +741,76 @@ async function runBrowser() {
     await page.waitForTimeout(1500);
     const after = await page.textContent('#answer');
     if (after === 'white' || after === 'grey') throw new Error('still corrected after clearing: "' + after + '"');
+  }));
+
+  // White with a camera that lets its exposure and white balance be held.
+  // The stub behaves as Chrome on Android does: after "manual" exposure the
+  // track reports "none". Dim paper should then read white at L 0.96.
+  const dimPaper = [200, 190, 170];
+  const holdStub = () => {
+    window.__constraints = [];
+    const state = { exposureMode: 'continuous', whiteBalanceMode: 'continuous', exposureTime: 333, iso: 100 };
+    const caps = MediaStreamTrack.prototype.getCapabilities;
+    const settings = MediaStreamTrack.prototype.getSettings;
+    MediaStreamTrack.prototype.getCapabilities = function () {
+      return Object.assign({}, caps ? caps.call(this) : {}, {
+        exposureMode: ['continuous', 'manual'], whiteBalanceMode: ['continuous', 'manual'],
+        exposureTime: { min: 1, max: 10000, step: 1 }, iso: { min: 50, max: 3200, step: 1 },
+      });
+    };
+    MediaStreamTrack.prototype.getSettings = function () {
+      return Object.assign({}, settings.call(this), state);
+    };
+    MediaStreamTrack.prototype.applyConstraints = function (c) {
+      window.__constraints.push(JSON.stringify(c));
+      for (const set of c.advanced || []) {
+        if (set.exposureMode) state.exposureMode = set.exposureMode === 'manual' ? 'none' : set.exposureMode;
+        if (set.whiteBalanceMode) state.whiteBalanceMode = set.whiteBalanceMode;
+      }
+      return Promise.resolve();
+    };
+  };
+
+  await test('White, exposure held: dim paper reads white at L 0.96; clearing hands the camera back', () => withCamera(solid(dimPaper), async (context) => {
+    await context.addInitScript(holdStub);
+    const page = await openApp(context);
+    const before = expectName(dimPaper);
+    await waitForAnswer(page, before);
+    await page.click('#white');
+    await waitForAnswer(page, 'white', 3000);
+    const ro = await page.textContent('#readout');
+    if (!/^L 0\.96 {2}C 0\.00 /.test(ro)) throw new Error('readout "' + ro + '"');
+    same(await page.evaluate(() => window.__constraints),
+      ['{"advanced":[{"exposureMode":"manual","exposureTime":333,"iso":100},{"whiteBalanceMode":"manual"}]}'], 'hold sent');
+    await page.click('#white');
+    await page.waitForFunction(() => window.__constraints.length === 2);
+    same(await page.evaluate(() => window.__constraints[1]),
+      '{"advanced":[{"exposureMode":"continuous"},{"whiteBalanceMode":"continuous"}]}', 'released');
+    await waitForAnswer(page, before);
+    if (await page.isVisible('#whiteMark')) throw new Error('marker still shown');
+  }));
+
+  await test('White, exposure held: after the camera closes and reopens, White stays on for colour only', () => withCamera(solid(dimPaper), async (context) => {
+    await context.addInitScript(holdStub);
+    const page = await openApp(context);
+    await waitForAnswer(page, expectName(dimPaper));
+    await page.click('#white');
+    await waitForAnswer(page, 'white', 3000);
+    const setVisibility = (state) => page.evaluate((v) => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v });
+      document.dispatchEvent(new Event('visibilitychange'));
+    }, state);
+    await setVisibility('hidden');
+    await setVisibility('visible');
+    await waitForAnswer(page, 'light grey', 8000);
+    if (!(await page.isVisible('#whiteMark'))) throw new Error('White dropped on reopening');
+  }));
+
+  await test('White, no hold offered (fake camera): dim paper loses its cast but keeps its lightness', () => withCamera(solid(dimPaper), async (context) => {
+    const page = await openApp(context);
+    await waitForAnswer(page, expectName(dimPaper));
+    await page.click('#white');
+    await waitForAnswer(page, 'light grey', 3000);
   }));
 
   async function whiteRefused(rgb, want) {

@@ -2,7 +2,7 @@
 // VERSION must match APP_VERSION in icantell.html. Bump both on every release.
 'use strict';
 
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 const CACHE = 'icantell-' + VERSION;
 const SHELL = [
   './',
