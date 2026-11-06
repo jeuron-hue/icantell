@@ -20,4 +20,4 @@ In development. Numbers run x.y.z: the middle number goes up when a feature is a
 
 ## Known limitations
 
-- The phone camera adjusts its own white balance, so names can drift under strongly coloured light (warm lamps, neon). Point the crosshair at white paper or a pale wall and tap White: the cast of that light is taken out of every name until you tap White again or close the app. Move to different light and it needs doing again. In dim places, Torch turns on the phone's light where the camera has one.
+- The phone camera adjusts its own white balance, so names can drift under strongly coloured light (warm lamps, neon). Point the crosshair at white paper or a pale wall and tap White: the cast of that light is taken out of every name until you tap White again or close the app, and where the phone allows, its camera stops adjusting brightness so white keeps reading white. Move to different light and it needs doing again. Screens and shiny surfaces give poor readings. In dim places, Torch turns on the phone's light where the camera has one.

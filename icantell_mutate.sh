@@ -10,8 +10,8 @@
 # that passes every test "survives", which means the tests do not pin that
 # piece of code down and need tightening. Exit status is 1 if any survive.
 #
-# Left alone: the name table (its numbers are data, checked by "every
-# centre names itself"), comments, 'use strict', and any line ending in
+# Left alone: the name table and the family grouping after it (data,
+# checked by "every centre names itself" and the family tests), comments, 'use strict', and any line ending in
 # "// mutate-skip: <reason>" (for a fault that cannot change any result).
 # Boundary flips (< to <=) are not made: the inputs are measured colours,
 # so an exact tie never decides a name. The thresholds themselves are

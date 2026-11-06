@@ -6,7 +6,7 @@
   I can tell (icantell.html). The whole app is in this one file.
 
   Build notes
-  - Version 0.2.0, Phase 2 (Light): White tap correction, torch, steadier names. 02/11/26.
+  - Version 0.2.1, Phase 2 retune: White holds exposure and reads white, name families, dark cutoff. 06/11/26.
   - Plain HTML, CSS and JavaScript. No framework, no build step, no server.
     The camera image is read here, frame by frame, and never kept or sent.
   - APP_VERSION below and VERSION in sw.js must match. Bump both on every
@@ -222,12 +222,35 @@ const Colour = (() => {
     { name: 'grey',       lab: [0.640, 0, 0], neutral: true },
     { name: 'white',      lab: [0.970, 0, 0], neutral: true },
   ];
+
+  // Name families, grouped by hue. Within one family the nearer name wins
+  // and no "between" is shown (blue or navy is a question of shade, not of
+  // colour). Across families a sample near the boundary is reported as
+  // "between". Black, grey and white are in no family: a colour against a
+  // neutral always counts as two families. Red and orange are kept apart,
+  // and so are yellow and lime, since those are the pairs most easily mixed up.
+  const FAMILIES = [
+    ['red', 'maroon', 'coral'],
+    ['pink', 'magenta'],
+    ['orange', 'peach', 'tan', 'brown'],
+    ['yellow', 'mustard', 'cream', 'beige', 'khaki'],
+    ['lime', 'olive'],
+    ['green', 'mint'],
+    ['teal', 'turquoise'],
+    ['blue', 'navy', 'sky blue'],
+    ['purple', 'lavender'],
+  ];
   // END name table
 
   // Below this OKLab chroma a sample is black, grey or white.
   const NEUTRAL_CHROMA = 0.025;
   // Chroma band just above NEUTRAL_CHROMA reported as "between grey and ...".
   const NEUTRAL_BAND = 0.015;
+  // Both limits shrink for darker samples, in proportion to lightness below
+  // NEUTRAL_FULL_L, down to NEUTRAL_MIN_SCALE of their full size. A dark
+  // green or navy has little chroma to show, so the full limit called it grey.
+  const NEUTRAL_FULL_L = 0.6;
+  const NEUTRAL_MIN_SCALE = 0.6;
   // Lightness limits for the neutral names, and the band either side of
   // each limit reported as "between black and grey" or "between grey and white".
   const BLACK_MAX_L = 0.3;
@@ -262,6 +285,9 @@ const Colour = (() => {
   // Share of each linear channel in luminance (sRGB, Rec. 709 primaries).
   // The White gain keeps the reference's luminance and removes only its cast.
   const LUMA = [0.2126, 0.7152, 0.0722];
+  // With the camera's exposure locked, White also scales the light so the
+  // reference reads at this OKLab lightness: white paper reads white.
+  const WHITE_TARGET_L = 0.96;
 
   // sRGB channel (0 to 255) to linear light (0 to 1), IEC 61966-2-1.
   function srgbToLinear(c) {
@@ -349,16 +375,30 @@ const Colour = (() => {
   }
 
   // White tap. lin is the reference patch in linear light [r, g, b]. Returns
-  // { gain, reason }: gain is a multiplier per channel (von Kries) that makes
-  // the reference read neutral at its own luminance, so the light's colour
-  // cast is taken out without making the scene brighter or darker. If the
-  // reference is unusable, gain is null and reason is 'dark' or 'colourful'.
+  // { gain, brighten, reason }. gain is a multiplier per channel (von Kries)
+  // that makes the reference read neutral at its own luminance, so the
+  // light's colour cast is taken out without making the scene brighter or
+  // darker. brighten is one further multiplier for all three channels that
+  // takes the reference to WHITE_TARGET_L; it is only right while the
+  // camera's exposure stays as it was at the tap. If the reference is
+  // unusable, gain and brighten are null and reason is 'dark' or 'colourful'.
   function whiteGain(lin) {
     const lch = oklabToOklch(linearToOklab(lin));
-    if (lch[0] < WHITE_REF_MIN_L) return { gain: null, reason: 'dark' };
-    if (lch[1] > WHITE_REF_MAX_C) return { gain: null, reason: 'colourful' };
+    if (lch[0] < WHITE_REF_MIN_L) return { gain: null, brighten: null, reason: 'dark' };
+    if (lch[1] > WHITE_REF_MAX_C) return { gain: null, brighten: null, reason: 'colourful' };
     const y = LUMA[0] * lin[0] + LUMA[1] * lin[1] + LUMA[2] * lin[2];
-    return { gain: [y / lin[0], y / lin[1], y / lin[2]], reason: '' };
+    const target = WHITE_TARGET_L * WHITE_TARGET_L * WHITE_TARGET_L;
+    return { gain: [y / lin[0], y / lin[1], y / lin[2]], brighten: target / y, reason: '' };
+  }
+
+  // Which family a name belongs to (an index into FAMILIES), or -1.
+  function familyOf(name) {
+    return FAMILIES.findIndex((names) => names.includes(name));
+  }
+
+  // How much of the full neutral limits applies at lightness l.
+  function neutralScale(l) {
+    return Math.max(NEUTRAL_MIN_SCALE, Math.min(1, l / NEUTRAL_FULL_L));
   }
 
   // Linear light [r, g, b] with the White gain applied. A null gain leaves it as it is.
@@ -432,7 +472,8 @@ const Colour = (() => {
   function nameColour(lab, previous) {
     const held = previous && !previous.between ? previous.family : null;
     const lch = oklabToOklch(lab);
-    if (lch[1] < NEUTRAL_CHROMA) {
+    const scale = neutralScale(lch[0]);
+    if (lch[1] < NEUTRAL_CHROMA * scale) {
       const family = neutralName(lch[0]);
       if (Math.abs(lch[0] - BLACK_MAX_L) < NEUTRAL_BETWEEN_L) return result(family, '', ['black', 'grey']);
       if (Math.abs(lch[0] - WHITE_MIN_L) < NEUTRAL_BETWEEN_L) return result(family, '', ['grey', 'white']);
@@ -445,11 +486,14 @@ const Colour = (() => {
     }
     const ranked = rankChromatic(lch, held);
     const best = ranked[0];
-    if (lch[1] < NEUTRAL_CHROMA + NEUTRAL_BAND) {
+    if (lch[1] < (NEUTRAL_CHROMA + NEUTRAL_BAND) * scale) {
       return result(best.name, '', [neutralName(lch[0]), best.name]);
     }
-    if (best.d > BETWEEN_RATIO * ranked[1].d) {
-      return result(best.name, '', [best.name, ranked[1].name]);
+    // The boundary that matters is with the nearest name of another family.
+    const family = familyOf(best.name);
+    const other = ranked.find((r) => familyOf(r.name) !== family);
+    if (best.d > BETWEEN_RATIO * other.d) {
+      return result(best.name, '', [best.name, other.name]);
     }
     return result(best.name, modifier(lch, best.centre), null);
   }
@@ -457,6 +501,7 @@ const Colour = (() => {
   return {
     NAME_TABLE, srgbToLinear, linearToSrgb, rgbToOklab, linearToOklab, oklabToRgb,
     oklabToOklch, oklchToOklab, medianRgb, meanOf, whiteGain, applyGain, nameDistance, nameColour,
+    FAMILIES, familyOf, neutralScale,
   };
 })();
 // END colour module
@@ -466,7 +511,7 @@ const Colour = (() => {
 (() => {
   'use strict';
 
-  const APP_VERSION = '0.2.0';
+  const APP_VERSION = '0.2.1';
   // Side of the square read under the crosshair, as a fraction of the
   // camera image's short side, with a floor in camera pixels. A fixed
   // 15 px square flickered on the phone.
@@ -501,8 +546,11 @@ const Colour = (() => {
   let starting = false;
   // Linear-light medians of the last FRAMES_TO_AVERAGE readings, before any White gain.
   let recent = [];
-  // White correction: per-channel gain, or null when off. Memory only.
-  let whiteGain = null;
+  // White correction: { gain, brighten } from Colour.whiteGain, or null
+  // when off. Memory only. brighten applies only while exposureLocked.
+  let whiteRef = null;
+  let exposureLocked = false;
+  let whiteBusy = false;
   let torchOn = false;
   let noteTimer = 0;
   let shown = null;
@@ -586,6 +634,8 @@ const Colour = (() => {
     stream = null;
     video.srcObject = null;
     setTorchState(false);
+    // A closed camera forgets its lock, so White falls back to colour only.
+    exposureLocked = false;
   }
 
   // Torch: offered only when the camera track says it has one.
@@ -617,33 +667,84 @@ const Colour = (() => {
     }
   }
 
+  // Hold the camera's own exposure and white balance where they are (lock
+  // true), or hand them back to the camera (lock false). Only modes the
+  // camera lists are asked for. In Chrome on Android, "manual" exposure
+  // turns auto exposure off at the last exposure time, so that time and the
+  // current ISO are passed too, and "manual" white balance locks the
+  // camera's current estimate. Returns true when exposure is now held:
+  // Chrome then reports the mode as "manual" or "none", no longer "continuous".
+  async function holdCamera(lock) {
+    const track = videoTrack();
+    if (!track || !track.getCapabilities || !track.applyConstraints) return false;
+    const caps = track.getCapabilities() || {};
+    const now = track.getSettings ? track.getSettings() : {};
+    const mode = lock ? 'manual' : 'continuous';
+    const sets = [];
+    if ((caps.exposureMode || []).includes('manual') && (caps.exposureMode || []).includes('continuous')) {
+      const exposure = { exposureMode: mode };
+      if (lock && caps.exposureTime && typeof now.exposureTime === 'number') exposure.exposureTime = now.exposureTime;
+      if (lock && caps.iso && typeof now.iso === 'number') exposure.iso = now.iso;
+      sets.push(exposure);
+    }
+    if ((caps.whiteBalanceMode || []).includes('manual') && (caps.whiteBalanceMode || []).includes('continuous')) {
+      sets.push({ whiteBalanceMode: mode });
+    }
+    if (!sets.length) return false;
+    try {
+      await track.applyConstraints({ advanced: sets });
+    } catch (err) {
+      return false;
+    }
+    if (!lock || track !== videoTrack()) return false;
+    const after = track.getSettings ? track.getSettings() : {};
+    return !!sets[0].exposureMode && !!after.exposureMode && after.exposureMode !== 'continuous';
+  }
+
+  function currentGain() {
+    if (!whiteRef) return null;
+    const k = exposureLocked ? whiteRef.brighten : 1;
+    return whiteRef.gain.map((g) => g * k);
+  }
+
   // White: the patch under the crosshair (averaged over the last second)
-  // becomes the reference that should read neutral. Tap again to clear.
-  function toggleWhite() {
-    if (whiteGain) {
-      setWhite(null);
-      return;
+  // becomes the reference that should read neutral, and, where the camera
+  // lets its exposure be held, read white. Tap again to clear.
+  async function toggleWhite() {
+    if (whiteBusy) return;
+    whiteBusy = true;
+    try {
+      if (whiteRef) {
+        const wasLocked = exposureLocked;
+        exposureLocked = false;
+        setWhite(null);
+        if (wasLocked) await holdCamera(false);
+        return;
+      }
+      if (!recent.length) {
+        showNote('Point at something white, then tap White.');
+        return;
+      }
+      const ref = Colour.whiteGain(Colour.meanOf(recent));
+      if (!ref.gain) {
+        showNote(ref.reason === 'dark'
+          ? 'Too dark for White. Point at white paper in better light.'
+          : 'Too colourful for White. Point at something white or light grey.');
+        return;
+      }
+      exposureLocked = await holdCamera(true);
+      setWhite(ref);
+    } finally {
+      whiteBusy = false;
     }
-    if (!recent.length) {
-      showNote('Point at something white, then tap White.');
-      return;
-    }
-    const ref = Colour.whiteGain(Colour.meanOf(recent));
-    if (!ref.gain) {
-      showNote(ref.reason === 'dark'
-        ? 'Too dark for White. Point at white paper in better light.'
-        : 'Too colourful for White. Point at something white or light grey.');
-      return;
-    }
-    setWhite(ref.gain);
   }
 
   // The readings kept are uncorrected, so the new setting applies to them
   // at once; the name is shown fresh rather than waiting out the repeats.
-  function setWhite(gain) {
-    whiteGain = gain;
-    whiteButton.setAttribute('aria-pressed', String(!!gain));
-    whiteMark.hidden = !gain;
+  function setWhite(ref) {
+    whiteRef = ref;
+    whiteButton.setAttribute('aria-pressed', String(!!ref));
+    whiteMark.hidden = !ref;
     note.hidden = true;
     shown = null;
     candidate = '';
@@ -700,7 +801,7 @@ const Colour = (() => {
   // Average the last second in linear light, apply the White gain, then
   // name it. The readout shows the same corrected numbers that were named.
   function nameCurrent() {
-    const lab = Colour.linearToOklab(Colour.applyGain(Colour.meanOf(recent), whiteGain));
+    const lab = Colour.linearToOklab(Colour.applyGain(Colour.meanOf(recent), currentGain()));
     readout.textContent = formatReadout(lab);
     // Wait for a full set of readings: a camera's first frames are often
     // still settling their exposure and white balance.
